@@ -52,6 +52,7 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
     size: OPENAI_SIZE_MAP[params.size] as "1024x1024" | "1536x1024" | "1024x1536",
     quality: params.quality === "high" ? "high" : "medium",
     n: 1,
+    response_format: "b64_json",
   });
   const b64 = response.data?.[0]?.b64_json;
   if (!b64) throw new Error("Provider không trả về ảnh");
