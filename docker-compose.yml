@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    container_name: img-studio
+    restart: unless-stopped
+    ports:
+      - "3456:3456"
+    volumes:
+      - img-data:/data
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+
+volumes:
+  img-data:
