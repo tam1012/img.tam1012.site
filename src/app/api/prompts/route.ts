@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
-import { listImages } from "@/lib/storage";
+import { getUniquePrompts } from "@/lib/storage";
 
 export async function GET() {
   if (!(await requireAuth())) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }
-
-  const images = listImages(100, 0);
-  return NextResponse.json({ images });
+  const prompts = getUniquePrompts(30);
+  return NextResponse.json({ prompts });
 }

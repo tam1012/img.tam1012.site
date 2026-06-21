@@ -1,27 +1,64 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Header from "@/components/Header";
+
+interface Provider {
+  id: string;
+  name: string;
+  is_default: boolean;
+}
 
 interface Result {
   id: string;
   url: string;
   prompt: string;
-  provider: string;
+  provider_name: string;
   model: string;
+}
+
+interface PromptItem {
+  prompt: string;
+  provider_name: string;
+  model: string;
+  created_at: string;
 }
 
 export default function GeneratePage() {
   const [prompt, setPrompt] = useState("");
-  const [provider, setProvider] = useState("google");
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerId, setProviderId] = useState("");
   const [size, setSize] = useState("square");
   const [quality, setQuality] = useState("high");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
+  const [prompts, setPrompts] = useState<PromptItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const fetchProviders = useCallback(async () => {
+    const res = await fetch("/api/providers");
+    const data = await res.json();
+    if (res.ok && data.providers.length > 0) {
+      setProviders(data.providers);
+      const def = data.providers.find((p: Provider) => p.is_default) || data.providers[0];
+      setProviderId(def.id);
+    }
+  }, []);
+
+  const fetchPrompts = useCallback(async () => {
+    const res = await fetch("/api/prompts");
+    const data = await res.json();
+    if (res.ok) setPrompts(data.prompts);
+  }, []);
+
+  useEffect(() => {
+    fetchProviders();
+    fetchPrompts();
+  }, [fetchProviders, fetchPrompts]);
 
   async function handleGenerate() {
-    if (!prompt.trim() || loading) return;
+    if (!prompt.trim() || loading || !providerId) return;
     setLoading(true);
     setError("");
     setResult(null);
@@ -29,11 +66,12 @@ export default function GeneratePage() {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim(), provider, size, quality }),
+        body: JSON.stringify({ prompt: prompt.trim(), provider_id: providerId, size, quality }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setResult(data);
+      fetchPrompts();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Có lỗi xảy ra");
     } finally {
@@ -45,6 +83,26 @@ export default function GeneratePage() {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       handleGenerate();
     }
+  }
+
+  function usePrompt(p: string) {
+    setPrompt(p);
+    setShowHistory(false);
+  }
+
+  if (providers.length === 0) {
+    return (
+      <div className="min-h-screen">
+        <Header />
+        <main className="max-w-3xl mx-auto px-4 py-16 text-center">
+          <p className="text-zinc-400 mb-2">Chưa có AI provider nào</p>
+          <p className="text-sm text-zinc-500 mb-4">Thêm provider trong phần Cài đặt để bắt đầu tạo ảnh</p>
+          <a href="/settings" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm transition-colors inline-block">
+            Đi tới Cài đặt
+          </a>
+        </main>
+      </div>
+    );
   }
 
   return (
@@ -62,40 +120,61 @@ export default function GeneratePage() {
             autoFocus
           />
 
+          {/* Prompt history toggle */}
+          {prompts.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+              >
+                {showHistory ? "▾ Ẩn lịch sử prompt" : "▸ Lịch sử prompt"} ({prompts.length})
+              </button>
+              {showHistory && (
+                <div className="mt-2 max-h-48 overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-xl divide-y divide-zinc-800/50">
+                  {prompts.map((p, i) => (
+                    <button
+                      key={i}
+                      onClick={() => usePrompt(p.prompt)}
+                      className="w-full text-left px-4 py-2.5 hover:bg-zinc-800/50 transition-colors cursor-pointer group"
+                    >
+                      <p className="text-sm text-zinc-300 line-clamp-2 group-hover:text-zinc-100">{p.prompt}</p>
+                      <p className="text-[10px] text-zinc-600 mt-0.5">
+                        {p.provider_name} · {p.model}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-3">
-            <Select
-              label="Provider"
-              value={provider}
-              onChange={setProvider}
-              options={[
-                { value: "google", label: "Google Gemini" },
-                { value: "openai", label: "OpenAI" },
-              ]}
-            />
-            <Select
-              label="Kích thước"
-              value={size}
-              onChange={setSize}
-              options={[
-                { value: "square", label: "Vuông (1:1)" },
-                { value: "landscape", label: "Ngang (3:2)" },
-                { value: "portrait", label: "Dọc (2:3)" },
-              ]}
-            />
-            <Select
-              label="Chất lượng"
-              value={quality}
-              onChange={setQuality}
-              options={[
-                { value: "standard", label: "Tiêu chuẩn" },
-                { value: "high", label: "Cao" },
-              ]}
-            />
+            <label className="flex items-center gap-2 text-sm text-zinc-400">
+              Provider
+              <select
+                value={providerId}
+                onChange={(e) => setProviderId(e.target.value)}
+                className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer"
+              >
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+            <Select label="Kích thước" value={size} onChange={setSize} options={[
+              { value: "square", label: "Vuông (1:1)" },
+              { value: "landscape", label: "Ngang (3:2)" },
+              { value: "portrait", label: "Dọc (2:3)" },
+            ]} />
+            <Select label="Chất lượng" value={quality} onChange={setQuality} options={[
+              { value: "standard", label: "Tiêu chuẩn" },
+              { value: "high", label: "Cao" },
+            ]} />
           </div>
 
           <button
             onClick={handleGenerate}
-            disabled={loading || !prompt.trim()}
+            disabled={loading || !prompt.trim() || !providerId}
             className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-xl transition-colors text-sm font-medium cursor-pointer disabled:cursor-not-allowed"
           >
             {loading ? (
@@ -117,15 +196,11 @@ export default function GeneratePage() {
           {result && (
             <div className="space-y-3 pt-4">
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                <img
-                  src={result.url}
-                  alt={result.prompt}
-                  className="w-full"
-                />
+                <img src={result.url} alt={result.prompt} className="w-full" />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-500">
-                  {result.provider === "google" ? "Google Gemini" : "OpenAI"} · {result.model}
+                  {result.provider_name} · {result.model}
                 </span>
                 <a
                   href={result.url}
@@ -139,38 +214,22 @@ export default function GeneratePage() {
           )}
         </div>
 
-        <p className="text-xs text-zinc-600 text-center mt-8">
-          Ctrl+Enter để tạo ảnh nhanh
-        </p>
+        <p className="text-xs text-zinc-600 text-center mt-8">Ctrl+Enter để tạo ảnh nhanh</p>
       </main>
     </div>
   );
 }
 
-function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
+function Select({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void;
   options: { value: string; label: string }[];
 }) {
   return (
     <label className="flex items-center gap-2 text-sm text-zinc-400">
       {label}
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer"
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer">
+        {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
       </select>
     </label>
   );

@@ -7,6 +7,7 @@ const NAV_LINKS = [
   { href: "/generate", label: "Tạo ảnh" },
   { href: "/edit", label: "Chỉnh sửa" },
   { href: "/gallery", label: "Thư viện" },
+  { href: "/settings", label: "Cài đặt" },
 ];
 
 export default function Header() {

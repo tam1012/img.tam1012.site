@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { insertImage, getImageById, listImages as dbListImages, ImageRecord } from "./db";
+import { insertImage, getImageById, listImages as dbListImages, getUniquePrompts as dbGetUniquePrompts, ImageRecord } from "./db";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const IMAGES_DIR = path.join(DATA_DIR, "images");
@@ -16,7 +16,8 @@ export function saveImage(
   meta: {
     prompt: string;
     editPrompt?: string;
-    provider: string;
+    providerId: string;
+    providerName: string;
     model: string;
     size?: string;
     quality?: string;
@@ -36,7 +37,8 @@ export function saveImage(
     id,
     prompt: meta.prompt,
     edit_prompt: meta.editPrompt || null,
-    provider: meta.provider,
+    provider_id: meta.providerId,
+    provider_name: meta.providerName,
     model: meta.model,
     size: meta.size || null,
     quality: meta.quality || null,
@@ -62,4 +64,8 @@ export function listImages(limit = 50, offset = 0): ImageRecord[] {
 
 export function getImage(id: string): ImageRecord | null {
   return getImageById(id);
+}
+
+export function getUniquePrompts(limit = 30) {
+  return dbGetUniquePrompts(limit);
 }
