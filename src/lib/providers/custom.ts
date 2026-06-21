@@ -46,14 +46,21 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
     apiKey: config.api_key,
     baseURL: config.base_url || undefined,
   });
-  const response = await client.images.generate({
-    model: config.model,
-    prompt: params.prompt,
-    size: OPENAI_SIZE_MAP[params.size] as "1024x1024" | "1536x1024" | "1024x1536",
-    quality: params.quality === "high" ? "high" : "medium",
-    n: 1,
-  });
-  return extractOpenAIImage(response, config.model);
+  try {
+    const response = await client.images.generate({
+      model: config.model,
+      prompt: params.prompt,
+      size: OPENAI_SIZE_MAP[params.size] as "1024x1024" | "1536x1024" | "1024x1536",
+      quality: params.quality === "high" ? "high" : "medium",
+      n: 1,
+    });
+    return extractOpenAIImage(response, config.model);
+  } catch (err: unknown) {
+    if (err instanceof OpenAI.APIError && err.status === 400) {
+      return chatCompletionsGenerate(client, config.model, params.prompt);
+    }
+    throw err;
+  }
 }
 
 async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
@@ -61,16 +68,76 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
     apiKey: config.api_key,
     baseURL: config.base_url || undefined,
   });
-  const file = await toFile(params.image, "image.png", { type: "image/png" });
-  const response = await client.images.edit({
-    model: config.model,
-    image: file,
-    prompt: params.prompt,
-    size: OPENAI_SIZE_MAP[params.size] as "1024x1024" | "1536x1024" | "1024x1536",
+  try {
+    const file = await toFile(params.image, "image.png", { type: "image/png" });
+    const response = await client.images.edit({
+      model: config.model,
+      image: file,
+      prompt: params.prompt,
+      size: OPENAI_SIZE_MAP[params.size] as "1024x1024" | "1536x1024" | "1024x1536",
+    });
+    const b64 = response.data?.[0]?.b64_json;
+    if (!b64) throw new Error("Provider không trả về ảnh chỉnh sửa");
+    return { data: Buffer.from(b64, "base64"), mimeType: "image/png", model: config.model };
+  } catch (err: unknown) {
+    if (err instanceof OpenAI.APIError && err.status === 400) {
+      return chatCompletionsEdit(client, config.model, params);
+    }
+    throw err;
+  }
+}
+
+async function chatCompletionsGenerate(client: OpenAI, model: string, prompt: string): Promise<GeneratedImage> {
+  const response = await client.chat.completions.create({
+    model,
+    messages: [{ role: "user", content: prompt }],
+    max_tokens: 4096,
   });
-  const b64 = response.data?.[0]?.b64_json;
-  if (!b64) throw new Error("Provider không trả về ảnh chỉnh sửa");
-  return { data: Buffer.from(b64, "base64"), mimeType: "image/png", model: config.model };
+  return extractChatImage(response, model);
+}
+
+async function chatCompletionsEdit(client: OpenAI, model: string, params: EditParams): Promise<GeneratedImage> {
+  const dataUrl = `data:${params.imageMimeType || "image/png"};base64,${params.image.toString("base64")}`;
+  const response = await client.chat.completions.create({
+    model,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: dataUrl } },
+        { type: "text", text: params.prompt },
+      ],
+    }],
+    max_tokens: 4096,
+  });
+  return extractChatImage(response, model);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractChatImage(response: any, modelName: string): GeneratedImage {
+  const message = response.choices?.[0]?.message;
+  if (!message) throw new Error("Provider không trả về response");
+  const images = message.images;
+  if (Array.isArray(images) && images.length > 0) {
+    const url: string = images[0]?.image_url?.url;
+    if (url) return parseDataUrl(url, modelName);
+  }
+  const content = message.content;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if (part.type === "image_url" && part.image_url?.url) {
+        return parseDataUrl(part.image_url.url, modelName);
+      }
+    }
+  }
+  throw new Error("Provider không trả về ảnh qua chat completions");
+}
+
+function parseDataUrl(url: string, modelName: string): GeneratedImage {
+  const match = url.match(/^data:([^;]+);base64,([\s\S]+)$/);
+  if (match) {
+    return { data: Buffer.from(match[2], "base64"), mimeType: match[1], model: modelName };
+  }
+  throw new Error("Provider trả về định dạng ảnh không hỗ trợ");
 }
 
 async function extractOpenAIImage(response: OpenAI.Images.ImagesResponse, modelName: string): Promise<GeneratedImage> {
