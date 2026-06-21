@@ -52,11 +52,8 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
     size: OPENAI_SIZE_MAP[params.size] as "1024x1024" | "1536x1024" | "1024x1536",
     quality: params.quality === "high" ? "high" : "medium",
     n: 1,
-    response_format: "b64_json",
   });
-  const b64 = response.data?.[0]?.b64_json;
-  if (!b64) throw new Error("Provider không trả về ảnh");
-  return { data: Buffer.from(b64, "base64"), mimeType: "image/png", model: config.model };
+  return extractOpenAIImage(response, config.model);
 }
 
 async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
@@ -74,6 +71,22 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
   const b64 = response.data?.[0]?.b64_json;
   if (!b64) throw new Error("Provider không trả về ảnh chỉnh sửa");
   return { data: Buffer.from(b64, "base64"), mimeType: "image/png", model: config.model };
+}
+
+async function extractOpenAIImage(response: OpenAI.Images.ImagesResponse, modelName: string): Promise<GeneratedImage> {
+  const item = response.data?.[0];
+  if (!item) throw new Error("Provider không trả về ảnh");
+  if (item.b64_json) {
+    return { data: Buffer.from(item.b64_json, "base64"), mimeType: "image/png", model: modelName };
+  }
+  if (item.url) {
+    const res = await fetch(item.url);
+    if (!res.ok) throw new Error("Không tải được ảnh từ URL provider trả về");
+    const buf = Buffer.from(await res.arrayBuffer());
+    const mime = res.headers.get("content-type") || "image/png";
+    return { data: buf, mimeType: mime, model: modelName };
+  }
+  throw new Error("Provider không trả về ảnh");
 }
 
 async function geminiGenerate(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage> {
