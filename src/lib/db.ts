@@ -27,6 +27,7 @@ export interface ImageRecord {
   filename: string;
   mime_type: string;
   original_image_id: string | null;
+  created_by: string;
   created_at: string;
 }
 
@@ -135,4 +136,8 @@ export function getUniquePrompts(limit = 30): { prompt: string; provider_name: s
     }
   }
   return results;
+}
+
+export function countImagesByCreator(creator: string): number {
+  return readDb().images.filter((img) => img.created_by === creator).length;
 }

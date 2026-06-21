@@ -1,8 +1,11 @@
 import { getIronSession, SessionOptions } from "iron-session";
 import { cookies } from "next/headers";
 
+export type Role = "admin" | "guest";
+
 export interface SessionData {
   isLoggedIn: boolean;
+  role: Role;
 }
 
 export const sessionOptions: SessionOptions = {
@@ -24,4 +27,15 @@ export async function getSession() {
 export async function requireAuth(): Promise<boolean> {
   const session = await getSession();
   return session.isLoggedIn === true;
+}
+
+export async function requireAdmin(): Promise<boolean> {
+  const session = await getSession();
+  return session.isLoggedIn === true && session.role === "admin";
+}
+
+export async function getRole(): Promise<Role | null> {
+  const session = await getSession();
+  if (!session.isLoggedIn) return null;
+  return session.role || "admin";
 }

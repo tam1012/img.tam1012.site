@@ -14,6 +14,13 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/generate", req.url));
   }
 
+  if (session && pathname === "/settings") {
+    const role = req.cookies.get("img-role")?.value;
+    if (role === "guest") {
+      return NextResponse.redirect(new URL("/generate", req.url));
+    }
+  }
+
   return NextResponse.next();
 }
 

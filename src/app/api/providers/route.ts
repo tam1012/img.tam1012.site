@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireAdmin } from "@/lib/auth";
 import { listProviders, addProvider, ProviderConfig } from "@/lib/db";
 import { v4 as uuidv4 } from "uuid";
 
@@ -21,8 +21,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await requireAuth())) {
-    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: "Không có quyền" }, { status: 403 });
   }
 
   try {

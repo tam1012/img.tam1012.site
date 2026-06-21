@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
-import { getProviderById } from "@/lib/db";
+import { requireAuth, getRole } from "@/lib/auth";
+import { getProviderById, countImagesByCreator } from "@/lib/db";
 import { editImage } from "@/lib/providers";
 import { saveImage } from "@/lib/storage";
+
+const GUEST_QUOTA = 50;
 
 export async function POST(req: NextRequest) {
   if (!(await requireAuth())) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
+  }
+
+  const role = await getRole();
+
+  if (role === "guest" && countImagesByCreator("guest") >= GUEST_QUOTA) {
+    return NextResponse.json({ error: `Đã đạt giới hạn ${GUEST_QUOTA} ảnh cho tài khoản khách` }, { status: 403 });
   }
 
   try {
@@ -46,6 +54,7 @@ export async function POST(req: NextRequest) {
       providerName: provider.name,
       model: result.model,
       size,
+      createdBy: role || "admin",
     });
 
     return NextResponse.json({

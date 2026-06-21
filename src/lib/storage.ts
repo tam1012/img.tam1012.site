@@ -22,6 +22,7 @@ export function saveImage(
     size?: string;
     quality?: string;
     originalImageId?: string;
+    createdBy?: string;
   }
 ): ImageRecord {
   ensureDir();
@@ -45,6 +46,7 @@ export function saveImage(
     filename,
     mime_type: mimeType,
     original_image_id: meta.originalImageId || null,
+    created_by: meta.createdBy || "admin",
     created_at: new Date().toISOString(),
   };
 

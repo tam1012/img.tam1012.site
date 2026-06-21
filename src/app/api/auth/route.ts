@@ -1,19 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, getRole, Role } from "@/lib/auth";
+
+export async function GET() {
+  const role = await getRole();
+  if (!role) {
+    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
+  }
+  return NextResponse.json({ role });
+}
 
 export async function POST(req: NextRequest) {
   try {
     const { password } = await req.json();
 
-    if (password !== process.env.AUTH_PASSWORD) {
+    let role: Role | null = null;
+    if (password === process.env.AUTH_PASSWORD) {
+      role = "admin";
+    } else if (process.env.GUEST_PASSWORD && password === process.env.GUEST_PASSWORD) {
+      role = "guest";
+    }
+
+    if (!role) {
       return NextResponse.json({ error: "Sai mật khẩu" }, { status: 401 });
     }
 
     const session = await getSession();
     session.isLoggedIn = true;
+    session.role = role;
     await session.save();
 
-    return NextResponse.json({ ok: true });
+    const res = NextResponse.json({ ok: true, role });
+    res.cookies.set("img-role", role, {
+      httpOnly: false,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 30,
+      secure: process.env.NODE_ENV === "production",
+    });
+    return res;
   } catch {
     return NextResponse.json({ error: "Lỗi đăng nhập" }, { status: 500 });
   }
@@ -22,5 +45,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE() {
   const session = await getSession();
   session.destroy();
-  return NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true });
+  res.cookies.delete("img-role");
+  return res;
 }
