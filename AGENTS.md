@@ -16,6 +16,8 @@ Công cụ cá nhân tạo và chỉnh sửa ảnh bằng AI. Ưu tiên: đơn g
 1. **Tạo ảnh** — nhập prompt, chọn provider/kích thước/chất lượng → nhận ảnh
 2. **Chỉnh sửa ảnh** — upload ảnh + prompt mô tả chỉnh sửa → nhận ảnh đã sửa
 3. **Thư viện** — xem lại tất cả ảnh đã tạo, tải về
+4. **Cài đặt AI Provider** — thêm/sửa/xoá provider trên giao diện web (base URL, API key, model)
+5. **Lịch sử prompt** — xem và tái sử dụng prompt đã dùng
 
 ## Tech stack
 
@@ -27,7 +29,7 @@ Công cụ cá nhân tạo và chỉnh sửa ảnh bằng AI. Ưu tiên: đơn g
 | Lưu trữ metadata | JSON file (`/data/db.json`) |
 | Lưu trữ ảnh | Filesystem (`/data/images/`) |
 | Auth | iron-session (cookie-based) |
-| AI Providers | Google Gemini API, OpenAI API |
+| AI Providers | User-configured (OpenAI-compatible hoặc Gemini), lưu trong db.json |
 | Deploy | Docker + nginx + Certbot |
 | CI/CD | GitHub Actions |
 
@@ -41,10 +43,12 @@ Client (Browser) → nginx (SSL termination) → Next.js (port 3456)
                                                 │   ├── /api/generate — tạo ảnh
                                                 │   ├── /api/edit — chỉnh sửa ảnh
                                                 │   ├── /api/gallery — danh sách ảnh
-                                                │   └── /api/images/[id] — serve ảnh
-                                                └── Providers
-                                                    ├── Google Gemini
-                                                    └── OpenAI
+                                                │   ├── /api/images/[id] — serve ảnh
+                                                │   ├── /api/providers — CRUD provider
+                                                │   └── /api/prompts — lịch sử prompt
+                                                └── Providers (user-configured)
+                                                    ├── OpenAI-compatible (custom base URL)
+                                                    └── Google Gemini
 ```
 
 ## Cấu trúc thư mục
@@ -57,10 +61,14 @@ src/
 │   │   ├── generate/       # POST tạo ảnh
 │   │   ├── edit/           # POST chỉnh sửa ảnh
 │   │   ├── gallery/        # GET danh sách ảnh
-│   │   └── images/[id]/    # GET serve file ảnh
-│   ├── generate/           # Trang tạo ảnh
+│   │   ├── images/[id]/    # GET serve file ảnh
+│   │   ├── providers/      # GET list, POST create
+│   │   ├── providers/[id]/ # PUT update, DELETE
+│   │   └── prompts/        # GET lịch sử prompt
+│   ├── generate/           # Trang tạo ảnh + prompt history
 │   ├── edit/               # Trang chỉnh sửa
 │   ├── gallery/            # Trang thư viện
+│   ├── settings/           # Trang quản lý AI providers
 │   ├── login/              # Trang đăng nhập
 │   ├── layout.tsx          # Root layout
 │   ├── page.tsx            # Redirect → /generate
@@ -72,9 +80,8 @@ src/
 │   ├── db.ts               # JSON file database
 │   ├── storage.ts          # Lưu/đọc ảnh + metadata
 │   └── providers/
-│       ├── index.ts        # Provider registry
-│       ├── openai.ts       # OpenAI provider
-│       └── google.ts       # Google Gemini provider
+│       ├── index.ts        # Re-export
+│       └── custom.ts       # OpenAI-compatible + Gemini implementation
 └── middleware.ts           # Auth redirect
 ```
 
@@ -84,11 +91,13 @@ src/
 - Không đổi code xung quanh khi chỉ sửa 1 chỗ.
 - Giao diện tối (dark theme), nghiêm túc, không loè loẹt.
 - Mọi text hiển thị bằng tiếng Việt.
-- Provider mới = 1 file trong `src/lib/providers/` + đăng ký trong `index.ts`.
+- Provider mới = user thêm qua giao diện Settings (không cần sửa code).
+- API key lưu server-side trong db.json, trả về client đã mask (****abcd).
 
 ## Quy tắc bảo mật
 
-- API key KHÔNG bao giờ gửi về client. Chỉ dùng server-side trong API routes.
+- API key KHÔNG bao giờ gửi về client dạng nguyên bản. Luôn mask khi trả về.
+- API key lưu trong `/data/db.json` (Docker volume), không trong source code.
 - File `.env` nằm trong `.gitignore`, không commit lên git.
 - Auth check ở cả middleware (redirect) lẫn API routes (session verify).
 - `client_max_body_size 20M` trong nginx cho upload ảnh.
@@ -105,7 +114,7 @@ src/
 - **JSON file thay vì SQLite**: máy dev Windows không có Visual Studio C++ build tools cho `better-sqlite3`. JSON file đủ cho quy mô nhỏ.
 - **Không dùng database server riêng**: giảm complexity, 1 container duy nhất.
 - **iron-session**: auth đơn giản, không cần OAuth/JWT cho dự án cá nhân.
-- **standalone output**: Next.js build ra folder tự chứa, Docker image nhẹ.
+- **Dynamic providers**: API key và config provider do user quản lý qua web UI (Settings), không hardcode trong env hay code. Lưu trong db.json trên data volume.
 
 ---
 
