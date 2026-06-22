@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, getRole } from "@/lib/auth";
-import { getProviderById, countImagesByCreator } from "@/lib/db";
+import { getProviderById, countImagesByCreatorToday } from "@/lib/db";
 import { editImage } from "@/lib/providers";
 import { saveImage } from "@/lib/storage";
 
-const GUEST_QUOTA = 50;
+const GUEST_DAILY_QUOTA = 30;
 
 export async function POST(req: NextRequest) {
   if (!(await requireAuth())) {
@@ -13,8 +13,8 @@ export async function POST(req: NextRequest) {
 
   const role = await getRole();
 
-  if (role === "guest" && countImagesByCreator("guest") >= GUEST_QUOTA) {
-    return NextResponse.json({ error: `Đã đạt giới hạn ${GUEST_QUOTA} ảnh cho tài khoản khách` }, { status: 403 });
+  if (role === "guest" && countImagesByCreatorToday("guest") >= GUEST_DAILY_QUOTA) {
+    return NextResponse.json({ error: `Đã đạt giới hạn ${GUEST_DAILY_QUOTA} ảnh/ngày cho tài khoản khách` }, { status: 403 });
   }
 
   try {

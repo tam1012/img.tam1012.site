@@ -141,3 +141,10 @@ export function getUniquePrompts(limit = 30): { prompt: string; provider_name: s
 export function countImagesByCreator(creator: string): number {
   return readDb().images.filter((img) => img.created_by === creator).length;
 }
+
+export function countImagesByCreatorToday(creator: string): number {
+  const today = new Date().toISOString().slice(0, 10);
+  return readDb().images.filter(
+    (img) => img.created_by === creator && img.created_at.startsWith(today)
+  ).length;
+}
