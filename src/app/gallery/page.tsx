@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 
 interface ImageRecord {
@@ -17,6 +18,9 @@ export default function GalleryPage() {
   const [images, setImages] = useState<ImageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ImageRecord | null>(null);
+  const [expandPrompt, setExpandPrompt] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -38,7 +42,7 @@ export default function GalleryPage() {
   useEffect(() => { fetchImages(1); }, [fetchImages]);
 
   useEffect(() => {
-    function handleEsc(e: KeyboardEvent) { if (e.key === "Escape") setSelected(null); }
+    function handleEsc(e: KeyboardEvent) { if (e.key === "Escape") { setSelected(null); setExpandPrompt(false); setCopied(false); } }
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
   }, []);
@@ -122,14 +126,22 @@ export default function GalleryPage() {
 
         {selected && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-            onClick={() => setSelected(null)}>
+            onClick={() => { setSelected(null); setExpandPrompt(false); setCopied(false); }}>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden max-w-3xl w-full max-h-[90vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}>
               <div className="overflow-auto flex-1">
                 <img src={`/api/images/${selected.id}`} alt={selected.prompt} className="w-full" />
               </div>
               <div className="p-4 border-t border-zinc-800 space-y-2">
-                <p className="text-sm text-zinc-200">{selected.prompt}</p>
+                <div>
+                  <p className={`text-sm text-zinc-200 ${expandPrompt ? "" : "line-clamp-2"}`}>{selected.prompt}</p>
+                  {selected.prompt.length > 100 && (
+                    <button onClick={() => setExpandPrompt(!expandPrompt)}
+                      className="text-xs text-zinc-400 hover:text-zinc-300 mt-1 cursor-pointer">
+                      {expandPrompt ? "Thu gọn" : "Xem thêm"}
+                    </button>
+                  )}
+                </div>
                 {selected.edit_prompt && (
                   <p className="text-xs text-zinc-400">Chỉnh sửa: {selected.edit_prompt}</p>
                 )}
@@ -138,11 +150,23 @@ export default function GalleryPage() {
                     {selected.provider_name} · {selected.model} · {formatDate(selected.created_at)}
                   </span>
                   <div className="flex gap-2">
+                    <button onClick={() => {
+                        navigator.clipboard.writeText(selected.prompt);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-300 transition-colors cursor-pointer">
+                      {copied ? "Copied!" : "Copy prompt"}
+                    </button>
+                    <button onClick={() => router.push(`/generate?prompt=${encodeURIComponent(selected.prompt)}`)}
+                      className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-300 transition-colors cursor-pointer">
+                      Tạo lại
+                    </button>
                     <a href={`/api/images/${selected.id}`} download={`img-${selected.id}.png`}
                       className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-300 transition-colors">
                       Tải về
                     </a>
-                    <button onClick={() => setSelected(null)}
+                    <button onClick={() => { setSelected(null); setExpandPrompt(false); setCopied(false); }}
                       className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-400 transition-colors cursor-pointer">
                       Đóng
                     </button>

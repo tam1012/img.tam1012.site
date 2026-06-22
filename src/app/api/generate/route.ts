@@ -4,7 +4,7 @@ import { getProviderById, countImagesByCreatorToday } from "@/lib/db";
 import { generateImage } from "@/lib/providers";
 import { saveImage } from "@/lib/storage";
 
-const GUEST_DAILY_QUOTA = 30;
+const GUEST_DAILY_QUOTA = 50;
 
 export async function POST(req: NextRequest) {
   if (!(await requireAuth())) {

@@ -57,6 +57,11 @@ export default function GeneratePage() {
     fetchPrompts();
   }, [fetchProviders, fetchPrompts]);
 
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("prompt");
+    if (p) setPrompt(p);
+  }, []);
+
   async function handleGenerate() {
     if (!prompt.trim() || loading || !providerId) return;
     setLoading(true);
