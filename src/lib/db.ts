@@ -115,12 +115,21 @@ export function getImageById(id: string): ImageRecord | null {
   return readDb().images.find((img) => img.id === id) || null;
 }
 
-export function listImages(limit = 50, offset = 0): ImageRecord[] {
-  return readDb().images.slice(offset, offset + limit);
+export function listImages(limit = 50, offset = 0, creator?: string): ImageRecord[] {
+  let images = readDb().images;
+  if (creator) images = images.filter((img) => img.created_by === creator);
+  return images.slice(offset, offset + limit);
 }
 
-export function getUniquePrompts(limit = 30): { prompt: string; provider_name: string; model: string; created_at: string }[] {
+export function countImages(creator?: string): number {
   const images = readDb().images;
+  if (creator) return images.filter((img) => img.created_by === creator).length;
+  return images.length;
+}
+
+export function getUniquePrompts(limit = 30, creator?: string): { prompt: string; provider_name: string; model: string; created_at: string }[] {
+  let images = readDb().images;
+  if (creator) images = images.filter((img) => img.created_by === creator);
   const seen = new Set<string>();
   const results: { prompt: string; provider_name: string; model: string; created_at: string }[] = [];
   for (const img of images) {

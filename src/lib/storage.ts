@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { insertImage, getImageById, listImages as dbListImages, getUniquePrompts as dbGetUniquePrompts, ImageRecord } from "./db";
+import { insertImage, getImageById, listImages as dbListImages, countImages as dbCountImages, getUniquePrompts as dbGetUniquePrompts, ImageRecord } from "./db";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const IMAGES_DIR = path.join(DATA_DIR, "images");
@@ -60,14 +60,18 @@ export function getImageFile(filename: string): Buffer | null {
   return fs.readFileSync(filePath);
 }
 
-export function listImages(limit = 50, offset = 0): ImageRecord[] {
-  return dbListImages(limit, offset);
+export function listImages(limit = 50, offset = 0, creator?: string): ImageRecord[] {
+  return dbListImages(limit, offset, creator);
+}
+
+export function countImages(creator?: string): number {
+  return dbCountImages(creator);
 }
 
 export function getImage(id: string): ImageRecord | null {
   return getImageById(id);
 }
 
-export function getUniquePrompts(limit = 30) {
-  return dbGetUniquePrompts(limit);
+export function getUniquePrompts(limit = 30, creator?: string) {
+  return dbGetUniquePrompts(limit, creator);
 }

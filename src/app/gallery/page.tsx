@@ -17,24 +17,37 @@ export default function GalleryPage() {
   const [images, setImages] = useState<ImageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ImageRecord | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
-  const fetchImages = useCallback(async () => {
+  const fetchImages = useCallback(async (p: number) => {
+    setLoading(true);
     try {
-      const res = await fetch("/api/gallery");
+      const res = await fetch(`/api/gallery?page=${p}`);
       const data = await res.json();
-      if (res.ok) setImages(data.images);
+      if (res.ok) {
+        setImages(data.images);
+        setTotalPages(data.totalPages);
+        setPage(data.page);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchImages(); }, [fetchImages]);
+  useEffect(() => { fetchImages(1); }, [fetchImages]);
 
   useEffect(() => {
     function handleEsc(e: KeyboardEvent) { if (e.key === "Escape") setSelected(null); }
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
   }, []);
+
+  function goToPage(p: number) {
+    if (p < 1 || p > totalPages || p === page) return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    fetchImages(p);
+  }
 
   function formatDate(dateStr: string) {
     const d = new Date(dateStr);
@@ -55,20 +68,56 @@ export default function GalleryPage() {
             <p className="text-sm text-zinc-600 mt-1">Bắt đầu tạo ảnh ở tab &quot;Tạo ảnh&quot;</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {images.map((img) => (
-              <button key={img.id} onClick={() => setSelected(img)}
-                className="group relative bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden aspect-square cursor-pointer">
-                <img src={`/api/images/${img.id}`} alt={img.prompt} className="w-full h-full object-cover" loading="lazy" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                  <div className="absolute bottom-0 left-0 right-0 p-3">
-                    <p className="text-xs text-zinc-200 line-clamp-2">{img.prompt}</p>
-                    <p className="text-[10px] text-zinc-400 mt-1">{img.provider_name}</p>
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {images.map((img) => (
+                <button key={img.id} onClick={() => setSelected(img)}
+                  className="group relative bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden aspect-square cursor-pointer">
+                  <img src={`/api/images/${img.id}`} alt={img.prompt} className="w-full h-full object-cover" loading="lazy" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute bottom-0 left-0 right-0 p-3">
+                      <p className="text-xs text-zinc-200 line-clamp-2">{img.prompt}</p>
+                      <p className="text-[10px] text-zinc-400 mt-1">{img.provider_name}</p>
+                    </div>
                   </div>
-                </div>
-              </button>
-            ))}
-          </div>
+                </button>
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-8">
+                <button onClick={() => goToPage(page - 1)} disabled={page <= 1}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm text-zinc-300 transition-colors cursor-pointer">
+                  ←
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+                  .reduce<(number | "...")[]>((acc, p, i, arr) => {
+                    if (i > 0 && p - (arr[i - 1]) > 1) acc.push("...");
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((item, i) =>
+                    item === "..." ? (
+                      <span key={`dots-${i}`} className="px-2 text-zinc-500 text-sm">…</span>
+                    ) : (
+                      <button key={item} onClick={() => goToPage(item as number)}
+                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors cursor-pointer ${
+                          item === page
+                            ? "bg-zinc-600 text-white"
+                            : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                        }`}>
+                        {item}
+                      </button>
+                    )
+                  )}
+                <button onClick={() => goToPage(page + 1)} disabled={page >= totalPages}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-sm text-zinc-300 transition-colors cursor-pointer">
+                  →
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {selected && (
