@@ -19,12 +19,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const formData = await req.formData();
-    const imageFile = formData.get("image") as File | null;
+    const imageEntries = formData.getAll("images") as File[];
     const prompt = formData.get("prompt") as string;
     const providerId = formData.get("provider_id") as string;
     const size = (formData.get("size") as string) || "square";
 
-    if (!imageFile) {
+    if (!imageEntries || imageEntries.length === 0) {
       return NextResponse.json({ error: "Vui lòng chọn ảnh gốc" }, { status: 400 });
     }
     if (!prompt?.trim()) {
@@ -39,10 +39,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Provider không tồn tại" }, { status: 404 });
     }
 
-    const imageBuffer = Buffer.from(await imageFile.arrayBuffer());
+    const images = await Promise.all(
+      imageEntries.map(async (file) => ({
+        buffer: Buffer.from(await file.arrayBuffer()),
+        mimeType: file.type || "image/png",
+      }))
+    );
     const result = await editImage(provider, {
-      image: imageBuffer,
-      imageMimeType: imageFile.type || "image/png",
+      images,
       prompt: prompt.trim(),
       size: size as "square" | "landscape" | "portrait",
     });

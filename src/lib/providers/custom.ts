@@ -9,8 +9,7 @@ export interface GenerateParams {
 }
 
 export interface EditParams {
-  image: Buffer;
-  imageMimeType: string;
+  images: { buffer: Buffer; mimeType: string }[];
   prompt: string;
   size: "square" | "landscape" | "portrait";
 }
@@ -64,12 +63,16 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
 }
 
 async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
+  if (params.images.length > 1) {
+    throw new Error("OpenAI chỉ hỗ trợ chỉnh sửa 1 ảnh. Vui lòng chọn provider Gemini để ghép nhiều ảnh.");
+  }
+  const img = params.images[0];
   const client = new OpenAI({
     apiKey: config.api_key,
     baseURL: config.base_url || undefined,
   });
   try {
-    const file = await toFile(params.image, "image.png", { type: "image/png" });
+    const file = await toFile(img.buffer, "image.png", { type: "image/png" });
     const response = await client.images.edit({
       model: config.model,
       image: file,
@@ -97,16 +100,16 @@ async function chatCompletionsGenerate(client: OpenAI, model: string, prompt: st
 }
 
 async function chatCompletionsEdit(client: OpenAI, model: string, params: EditParams): Promise<GeneratedImage> {
-  const dataUrl = `data:${params.imageMimeType || "image/png"};base64,${params.image.toString("base64")}`;
+  const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
+    ...params.images.map((img) => ({
+      type: "image_url" as const,
+      image_url: { url: `data:${img.mimeType || "image/png"};base64,${img.buffer.toString("base64")}` },
+    })),
+    { type: "text" as const, text: params.prompt },
+  ];
   const response = await client.chat.completions.create({
     model,
-    messages: [{
-      role: "user",
-      content: [
-        { type: "image_url", image_url: { url: dataUrl } },
-        { type: "text", text: params.prompt },
-      ],
-    }],
+    messages: [{ role: "user", content }],
     max_tokens: 4096,
   });
   return extractChatImage(response, model);
@@ -172,10 +175,13 @@ async function geminiEdit(config: ProviderConfig, params: EditParams): Promise<G
     model: config.model,
     generationConfig: { responseModalities: ["IMAGE", "TEXT"] } as never,
   });
-  const result = await model.generateContent([
-    { inlineData: { mimeType: params.imageMimeType || "image/png", data: params.image.toString("base64") } },
+  const parts = [
+    ...params.images.map((img) => ({
+      inlineData: { mimeType: img.mimeType || "image/png", data: img.buffer.toString("base64") },
+    })),
     { text: params.prompt },
-  ]);
+  ];
+  const result = await model.generateContent(parts);
   return extractGeminiImage(result, config.model);
 }
 

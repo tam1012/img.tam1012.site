@@ -20,8 +20,8 @@ interface Result {
 export default function EditPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerId, setProviderId] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState("square");
   const [loading, setLoading] = useState(false);
@@ -42,33 +42,65 @@ export default function EditPage() {
 
   useEffect(() => { fetchProviders(); }, [fetchProviders]);
 
-  function handleFile(file: File) {
-    if (!file.type.startsWith("image/")) {
+  useEffect(() => {
+    function handlePaste(e: ClipboardEvent) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const file = items[i].getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    }
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  });
+
+  function addFiles(files: File[]) {
+    const validFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (validFiles.length === 0) {
       setError("Vui lòng chọn file ảnh");
       return;
     }
-    setImageFile(file);
     setError("");
-    const reader = new FileReader();
-    reader.onload = (e) => setImagePreview(e.target?.result as string);
-    reader.readAsDataURL(file);
+    setImageFiles((prev) => [...prev, ...validFiles]);
+    for (const file of validFiles) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreviews((prev) => [...prev, e.target?.result as string]);
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function removeImage(index: number) {
+    setImageFiles((prev) => prev.filter((_, i) => i !== index));
+    setImagePreviews((prev) => prev.filter((_, i) => i !== index));
   }
 
   function handleDrop(e: DragEvent) {
     e.preventDefault();
     setDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) addFiles(files);
   }
 
   async function handleEdit() {
-    if (!imageFile || !prompt.trim() || loading || !providerId) return;
+    if (imageFiles.length === 0 || !prompt.trim() || loading || !providerId) return;
     setLoading(true);
     setError("");
     setResult(null);
 
     const formData = new FormData();
-    formData.append("image", imageFile);
+    for (const file of imageFiles) {
+      formData.append("images", file);
+    }
     formData.append("prompt", prompt.trim());
     formData.append("provider_id", providerId);
     formData.append("size", size);
@@ -119,27 +151,37 @@ export default function EditPage() {
             onDragLeave={() => setDragging(false)}
             className={`relative border-2 border-dashed rounded-xl transition-colors cursor-pointer overflow-hidden ${
               dragging ? "border-blue-500 bg-blue-500/5"
-                : imagePreview ? "border-zinc-700" : "border-zinc-700 hover:border-zinc-600 bg-zinc-900"
+                : imagePreviews.length > 0 ? "border-zinc-700" : "border-zinc-700 hover:border-zinc-600 bg-zinc-900"
             }`}
           >
-            {imagePreview ? (
-              <div className="relative">
-                <img src={imagePreview} alt="Ảnh gốc" className="w-full max-h-96 object-contain" />
-                <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <span className="text-sm text-white bg-zinc-800/80 px-3 py-1.5 rounded-lg">Đổi ảnh</span>
+            {imagePreviews.length > 0 ? (
+              <div className="p-3">
+                <div className={`grid gap-2 ${imagePreviews.length === 1 ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-3"}`}>
+                  {imagePreviews.map((preview, i) => (
+                    <div key={i} className="relative group">
+                      <img src={preview} alt={`Ảnh ${i + 1}`} className={`w-full rounded-lg object-contain ${imagePreviews.length === 1 ? "max-h-96" : "max-h-48"}`} />
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeImage(i); }}
+                        className="absolute top-1 right-1 w-6 h-6 bg-black/70 hover:bg-red-600 rounded-full flex items-center justify-center text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
                 </div>
+                <p className="text-xs text-zinc-500 text-center mt-2">Click để thêm ảnh · Ctrl+V để dán</p>
               </div>
             ) : (
               <div className="py-16 text-center">
                 <svg className="mx-auto h-10 w-10 text-zinc-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
                 </svg>
-                <p className="text-sm text-zinc-400">Kéo thả ảnh vào đây hoặc click để chọn</p>
-                <p className="text-xs text-zinc-600 mt-1">PNG, JPG, WEBP</p>
+                <p className="text-sm text-zinc-400">Kéo thả ảnh vào đây, click để chọn, hoặc Ctrl+V để dán</p>
+                <p className="text-xs text-zinc-600 mt-1">PNG, JPG, WEBP · Có thể chọn nhiều ảnh</p>
               </div>
             )}
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
+              onChange={(e) => { const files = Array.from(e.target.files || []); if (files.length > 0) addFiles(files); e.target.value = ""; }} />
           </div>
 
           <textarea
@@ -172,7 +214,7 @@ export default function EditPage() {
 
           <button
             onClick={handleEdit}
-            disabled={loading || !imageFile || !prompt.trim() || !providerId}
+            disabled={loading || imageFiles.length === 0 || !prompt.trim() || !providerId}
             className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-xl transition-colors text-sm font-medium cursor-pointer disabled:cursor-not-allowed"
           >
             {loading ? (
@@ -180,7 +222,7 @@ export default function EditPage() {
                 <span className="spinner" />
                 Đang chỉnh sửa...
               </span>
-            ) : "Chỉnh sửa ảnh"}
+            ) : `Chỉnh sửa ảnh${imageFiles.length > 1 ? ` (${imageFiles.length} ảnh)` : ""}`}
           </button>
 
           {error && (
@@ -190,10 +232,14 @@ export default function EditPage() {
           {result && (
             <div className="space-y-3 pt-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {imagePreview && (
+                {imagePreviews.length > 0 && (
                   <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                    <p className="text-xs text-zinc-500 px-3 py-2 border-b border-zinc-800">Ảnh gốc</p>
-                    <img src={imagePreview} alt="Gốc" className="w-full" />
+                    <p className="text-xs text-zinc-500 px-3 py-2 border-b border-zinc-800">Ảnh gốc{imagePreviews.length > 1 ? ` (${imagePreviews.length})` : ""}</p>
+                    <div className={imagePreviews.length > 1 ? "grid grid-cols-2 gap-1 p-1" : ""}>
+                      {imagePreviews.map((p, i) => (
+                        <img key={i} src={p} alt={`Gốc ${i + 1}`} className="w-full" />
+                      ))}
+                    </div>
                   </div>
                 )}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
@@ -211,7 +257,7 @@ export default function EditPage() {
             </div>
           )}
         </div>
-        <p className="text-xs text-zinc-600 text-center mt-8">Ctrl+Enter để chỉnh sửa nhanh</p>
+        <p className="text-xs text-zinc-600 text-center mt-8">Ctrl+Enter để chỉnh sửa nhanh · Ctrl+V để dán ảnh</p>
       </main>
     </div>
   );

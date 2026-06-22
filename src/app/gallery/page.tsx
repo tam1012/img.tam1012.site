@@ -132,9 +132,9 @@ export default function GalleryPage() {
               <div className="overflow-auto flex-1">
                 <img src={`/api/images/${selected.id}`} alt={selected.prompt} className="w-full" />
               </div>
-              <div className="p-4 border-t border-zinc-800 space-y-2">
+              <div className="p-4 border-t border-zinc-800 space-y-2 shrink-0">
                 <div>
-                  <p className={`text-sm text-zinc-200 ${expandPrompt ? "" : "line-clamp-2"}`}>{selected.prompt}</p>
+                  <p className={`text-sm text-zinc-200 ${expandPrompt ? "max-h-32 overflow-y-auto" : "line-clamp-2"}`}>{selected.prompt}</p>
                   {selected.prompt.length > 100 && (
                     <button onClick={() => setExpandPrompt(!expandPrompt)}
                       className="text-xs text-zinc-400 hover:text-zinc-300 mt-1 cursor-pointer">
