@@ -104,16 +104,14 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
     if (!b64) throw new Error("Provider không trả về ảnh chỉnh sửa");
     return { data: Buffer.from(b64, "base64"), mimeType: "image/png", model: config.model };
   } catch (err: unknown) {
-    if (err instanceof OpenAI.APIError && err.status === 400) {
-      // Chỉ fallback sang chat completions nếu KHÔNG phải lỗi content policy
-      if (!isContentPolicyError(err)) {
-        try {
-          return await chatCompletionsEdit(client, config.model, params);
-        } catch {
-          // Fallback thất bại -> ném lại lỗi gốc từ images.edit,
-          // không để lỗi 503 từ chat đè lên
-        }
-      }
+    // Giữ nguyên message gốc từ provider, bọc thêm gợi ý cho người dùng.
+    // Không fallback sang chatCompletionsEdit vì base64 ảnh bị tokenize
+    // thành hàng trăm nghìn token gây lỗi "token limit" gây hiểu nhầm.
+    if (err instanceof OpenAI.APIError) {
+      throw new Error(
+        `Chỉnh sửa ảnh thất bại với model "${config.model}": ${err.message}\n` +
+        `Nếu model này không hỗ trợ chỉnh sửa ảnh, hãy dùng Gemini image hoặc GPT Image.`
+      );
     }
     throw err;
   }
