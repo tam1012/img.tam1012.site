@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Lỗi chỉnh sửa ảnh";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.startsWith("Chỉnh sửa ảnh thất bại") ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
