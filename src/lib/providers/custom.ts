@@ -26,6 +26,19 @@ const OPENAI_SIZE_MAP: Record<string, string> = {
   portrait: "1024x1536",
 };
 
+/** Kiểm tra lỗi 400 có phải là content policy / moderation không. */
+function isContentPolicyError(err: unknown): boolean {
+  if (!(err instanceof OpenAI.APIError)) return false;
+  // Nhận diện qua error code (đáng tin cậy nhất)
+  if (err.code === "content_policy_violation" || err.code === "moderation_blocked") {
+    return true;
+  }
+  // Fallback: kiểm tra message nếu upstream không đặt code
+  const msg = (err.message || "").toLowerCase();
+  const markers = ["content_policy", "moderation", "safety_violation", "violat", "policy"];
+  return markers.some((m) => msg.includes(m));
+}
+
 export async function generateImage(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage> {
   if (config.api_type === "gemini") {
     return geminiGenerate(config, params);
@@ -56,7 +69,15 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
     return extractOpenAIImage(response, config.model);
   } catch (err: unknown) {
     if (err instanceof OpenAI.APIError && err.status === 400) {
-      return chatCompletionsGenerate(client, config.model, params.prompt);
+      // Chỉ fallback sang chat completions nếu KHÔNG phải lỗi content policy
+      if (!isContentPolicyError(err)) {
+        try {
+          return await chatCompletionsGenerate(client, config.model, params.prompt);
+        } catch {
+          // Fallback thất bại -> ném lại lỗi gốc từ images.generate,
+          // không để lỗi 503 từ chat đè lên
+        }
+      }
     }
     throw err;
   }
@@ -84,7 +105,15 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
     return { data: Buffer.from(b64, "base64"), mimeType: "image/png", model: config.model };
   } catch (err: unknown) {
     if (err instanceof OpenAI.APIError && err.status === 400) {
-      return chatCompletionsEdit(client, config.model, params);
+      // Chỉ fallback sang chat completions nếu KHÔNG phải lỗi content policy
+      if (!isContentPolicyError(err)) {
+        try {
+          return await chatCompletionsEdit(client, config.model, params);
+        } catch {
+          // Fallback thất bại -> ném lại lỗi gốc từ images.edit,
+          // không để lỗi 503 từ chat đè lên
+        }
+      }
     }
     throw err;
   }
