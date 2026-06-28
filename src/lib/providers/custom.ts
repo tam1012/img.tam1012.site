@@ -35,7 +35,7 @@ function isContentPolicyError(err: unknown): boolean {
   }
   // Fallback: kiểm tra message nếu upstream không đặt code
   const msg = (err.message || "").toLowerCase();
-  const markers = ["content_policy", "moderation", "safety_violation", "violat", "policy"];
+  const markers = ["content_policy", "moderation", "safety_violation", "violat", "policy", "can't help", "explicit", "nudity", "sexual"];
   return markers.some((m) => msg.includes(m));
 }
 
