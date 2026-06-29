@@ -14,6 +14,7 @@ export interface EditParams {
   prompt: string;
   width: number;
   height: number;
+  quality: "standard" | "high";
 }
 
 export interface GeneratedImage {
@@ -52,6 +53,13 @@ export function computePixelSize(aspectRatio: string, resolution: string): { wid
   }
 
   return { width, height };
+}
+
+/** Tạo prefix hướng dẫn kích thước/chất lượng cho provider không hỗ trợ native params.
+ *  Dùng cho Gemini native và chat completions (proxy). */
+function buildImageInstructionPrefix(params: { width: number; height: number; quality: "standard" | "high" }): string {
+  const qualityDesc = params.quality === "high" ? "highest possible" : "standard";
+  return `[Image requirements: ${params.width}x${params.height} pixels, ${qualityDesc} quality]\n`;
 }
 
 function isOpenAICompatModelFamily(model: string, family: "gemini" | "imagen"): boolean {
@@ -167,6 +175,7 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
       image: file,
       prompt: params.prompt,
       size: `${params.width}x${params.height}` as "1024x1024",
+      quality: params.quality === "high" ? "high" : "medium",
     });
     const b64 = response.data?.[0]?.b64_json;
     if (!b64) throw new Error("Provider không trả về ảnh chỉnh sửa");
@@ -196,23 +205,23 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
 }
 
 async function chatCompletionsGenerate(client: OpenAI, model: string, params: GenerateParams): Promise<GeneratedImage> {
-  const sizeHint = `[Output image: ${params.width}x${params.height}px, ${params.quality === "high" ? "highest" : "standard"} quality]`;
+  const prefix = buildImageInstructionPrefix(params);
   const response = await client.chat.completions.create({
     model,
-    messages: [{ role: "user", content: `${sizeHint}\n${params.prompt}` }],
+    messages: [{ role: "user", content: `${prefix}${params.prompt}` }],
     max_tokens: 4096,
   });
   return extractChatImage(response, model);
 }
 
 async function chatCompletionsEdit(client: OpenAI, model: string, params: EditParams): Promise<GeneratedImage> {
-  const sizeHint = `[Output image: ${params.width}x${params.height}px]`;
+  const prefix = buildImageInstructionPrefix(params);
   const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
     ...params.images.map((img) => ({
       type: "image_url" as const,
       image_url: { url: `data:${img.mimeType || "image/png"};base64,${img.buffer.toString("base64")}` },
     })),
-    { type: "text" as const, text: `${sizeHint}\n${params.prompt}` },
+    { type: "text" as const, text: `${prefix}${params.prompt}` },
   ];
   const response = await client.chat.completions.create({
     model,
@@ -280,7 +289,7 @@ async function geminiGenerate(config: ProviderConfig, params: GenerateParams): P
     model: config.model,
     generationConfig: { responseModalities: ["IMAGE", "TEXT"] } as never,
   });
-  const result = await model.generateContent(params.prompt);
+  const result = await model.generateContent(`${buildImageInstructionPrefix(params)}${params.prompt}`);
   return extractGeminiImage(result, config.model);
 }
 
@@ -294,7 +303,7 @@ async function geminiEdit(config: ProviderConfig, params: EditParams): Promise<G
     ...params.images.map((img) => ({
       inlineData: { mimeType: img.mimeType || "image/png", data: img.buffer.toString("base64") },
     })),
-    { text: params.prompt },
+    { text: `${buildImageInstructionPrefix(params)}${params.prompt}` },
   ];
   const result = await model.generateContent(parts);
   return extractGeminiImage(result, config.model);

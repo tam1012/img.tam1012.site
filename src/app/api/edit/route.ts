@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
       prompt: prompt.trim(),
       width,
       height,
+      quality: quality as "standard" | "high",
     });
 
     const record = saveImage(result.data, result.mimeType, {
