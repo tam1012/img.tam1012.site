@@ -25,11 +25,10 @@ ssh -i "C:\Users\Ha Tam\.ssh\ssh-key-2026-04-20_tamhvt.key" ubuntu@158.178.239.1
 File `.env` tại `/home/ubuntu/img-studio/.env`:
 
 ```env
-GOOGLE_AI_API_KEY=your_key    # Google Gemini API key
-OPENAI_API_KEY=your_key       # OpenAI API key
-AUTH_PASSWORD=your_password   # Mật khẩu đăng nhập
-SESSION_SECRET=random_string  # Mã hóa cookie (≥32 ký tự)
-DATA_DIR=/data                # Thư mục data (Docker volume)
+AUTH_PASSWORD=your_password       # Mật khẩu admin (toàn quyền)
+GUEST_PASSWORD=your_password      # Mật khẩu khách (giới hạn 50 ảnh/ngày)
+SESSION_SECRET=random_string      # Mã hóa cookie (≥32 ký tự)
+DATA_DIR=/data                    # Thư mục data (Docker volume)
 ```
 
 ## Deploy tự động (CI/CD)

@@ -1,5 +1,19 @@
 # Changelog — IMG Studio
 
+## 2026-06-22 — Guest quota đổi sang 50 ảnh/ngày
+
+- Quota khách đổi từ giới hạn tổng → **50 ảnh/ngày** (tạo + chỉnh sửa tính chung, reset theo ngày UTC)
+
+---
+
+## 2026-06-22 — Tài khoản khách
+
+- Thêm role **guest** với mật khẩu riêng (`GUEST_PASSWORD`)
+- Guest không truy cập được trang Settings
+- Hiện badge "Khách" trên header
+
+---
+
 ## 2026-06-22 — Dynamic Provider Management
 
 ### Tính năng mới

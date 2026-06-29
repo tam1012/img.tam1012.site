@@ -29,8 +29,8 @@
 ### Đăng nhập (POST /api/auth)
 
 1. Client gửi `{ password }` dạng JSON
-2. API so sánh với `AUTH_PASSWORD` env var
-3. Đúng → tạo iron-session cookie (mã hóa, httpOnly, 30 ngày)
+2. API so sánh với `AUTH_PASSWORD` → role `admin`, hoặc `GUEST_PASSWORD` → role `guest`
+3. Đúng → tạo iron-session cookie (mã hóa, httpOnly, 30 ngày, kèm role)
 4. Sai → trả 401
 
 ## Luồng tạo ảnh
@@ -86,6 +86,7 @@ Tương tự tạo ảnh, nhưng:
       "filename": "uuid.png",
       "mime_type": "image/png",
       "original_image_id": null,
+      "created_by": "admin",
       "created_at": "2026-06-22T..."
     }
   ]

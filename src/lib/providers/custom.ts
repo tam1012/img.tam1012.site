@@ -209,6 +209,14 @@ function extractChatImage(response: any, modelName: string): GeneratedImage {
       }
     }
   }
+  const textContent = typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content.filter((p: { type: string }) => p.type === "text").map((p: { text: string }) => p.text).join(" ")
+      : "";
+  if (textContent) {
+    throw new Error(textContent.slice(0, 300));
+  }
   throw new Error("Provider không trả về ảnh qua chat completions");
 }
 

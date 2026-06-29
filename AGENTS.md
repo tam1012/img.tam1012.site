@@ -8,8 +8,8 @@ Công cụ cá nhân tạo và chỉnh sửa ảnh bằng AI. Ưu tiên: đơn g
 
 ## Đối tượng sử dụng
 
-- Chủ dự án (Ha Tam) và một số bạn bè thân thiết
-- Xác thực bằng 1 mật khẩu chung (env var `AUTH_PASSWORD`)
+- **Admin** (Ha Tam) — mật khẩu `AUTH_PASSWORD`, toàn quyền, không giới hạn
+- **Guest** (bạn bè) — mật khẩu `GUEST_PASSWORD`, không truy cập Settings, giới hạn 50 ảnh/ngày (tạo + chỉnh sửa tính chung, reset theo ngày UTC)
 
 ## Chức năng chính
 
@@ -100,7 +100,7 @@ src/
 - API key lưu trong `/data/db.json` (Docker volume), không trong source code.
 - File `.env` nằm trong `.gitignore`, không commit lên git.
 - Auth check ở cả middleware (redirect) lẫn API routes (session verify).
-- `client_max_body_size 20M` trong nginx cho upload ảnh.
+- `client_max_body_size 50M` trong nginx cho upload ảnh.
 
 ## Quy tắc triển khai
 

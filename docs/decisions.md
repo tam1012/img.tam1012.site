@@ -43,16 +43,16 @@
 
 ---
 
-## 2026-06-22: Xác thực bằng 1 mật khẩu chung
+## 2026-06-22: Xác thực bằng mật khẩu, phân 2 role
 
-**Quyết định:** Dùng 1 `AUTH_PASSWORD` env var cho tất cả người dùng, không phân biệt account.
+**Quyết định:** Dùng 2 mật khẩu env var: `AUTH_PASSWORD` (admin) và `GUEST_PASSWORD` (guest).
 
 **Lý do:**
-- Dự án cá nhân, chỉ share cho vài người thân
-- Không cần biết ai dùng, không cần quota per-user
-- Giảm complexity: không cần database user, form đăng ký, reset password
+- Dự án cá nhân, share cho vài người thân
+- Admin toàn quyền, guest bị giới hạn (không truy cập Settings, quota 50 ảnh/ngày)
+- Vẫn đơn giản: không cần database user, form đăng ký, reset password
 
-**Hệ quả:** Không phân biệt được ai tạo ảnh nào. Đổi mật khẩu = đổi env var + tất cả phải đăng nhập lại.
+**Hệ quả:** Tất cả guest dùng chung 1 mật khẩu và chung quota (không phân biệt từng người). Đổi mật khẩu = đổi env var.
 
 ---
 
