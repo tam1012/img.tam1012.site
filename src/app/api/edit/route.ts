@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, getRole } from "@/lib/auth";
 import { getProviderById, countImagesByCreatorToday } from "@/lib/db";
-import { editImage } from "@/lib/providers";
+import { editImage, computePixelSize } from "@/lib/providers";
 import { saveImage } from "@/lib/storage";
 
 const GUEST_DAILY_QUOTA = 50;
@@ -22,7 +22,9 @@ export async function POST(req: NextRequest) {
     const imageEntries = formData.getAll("images") as File[];
     const prompt = formData.get("prompt") as string;
     const providerId = formData.get("provider_id") as string;
-    const size = (formData.get("size") as string) || "square";
+    const aspectRatio = (formData.get("aspect_ratio") as string) || "1:1";
+    const resolution = (formData.get("resolution") as string) || "1K";
+    const quality = (formData.get("quality") as string) || "standard";
 
     if (!imageEntries || imageEntries.length === 0) {
       return NextResponse.json({ error: "Vui lòng chọn ảnh gốc" }, { status: 400 });
@@ -45,10 +47,12 @@ export async function POST(req: NextRequest) {
         mimeType: file.type || "image/png",
       }))
     );
+    const { width, height } = computePixelSize(aspectRatio, resolution);
     const result = await editImage(provider, {
       images,
       prompt: prompt.trim(),
-      size: size as "square" | "landscape" | "portrait",
+      width,
+      height,
     });
 
     const record = saveImage(result.data, result.mimeType, {
@@ -57,7 +61,8 @@ export async function POST(req: NextRequest) {
       providerId: provider.id,
       providerName: provider.name,
       model: result.model,
-      size,
+      size: `${width}x${height}`,
+      quality,
       createdBy: role || "admin",
     });
 

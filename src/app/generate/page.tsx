@@ -28,7 +28,8 @@ export default function GeneratePage() {
   const [prompt, setPrompt] = useState("");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerId, setProviderId] = useState("");
-  const [size, setSize] = useState("square");
+  const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [resolution, setResolution] = useState("1K");
   const [quality, setQuality] = useState("high");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -71,7 +72,7 @@ export default function GeneratePage() {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim(), provider_id: providerId, size, quality }),
+        body: JSON.stringify({ prompt: prompt.trim(), provider_id: providerId, aspect_ratio: aspectRatio, resolution, quality }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -166,10 +167,18 @@ export default function GeneratePage() {
                 ))}
               </select>
             </label>
-            <Select label="Kích thước" value={size} onChange={setSize} options={[
-              { value: "square", label: "Vuông (1:1)" },
-              { value: "landscape", label: "Ngang (3:2)" },
-              { value: "portrait", label: "Dọc (2:3)" },
+            <Select label="Tỷ lệ" value={aspectRatio} onChange={setAspectRatio} options={[
+              { value: "1:1", label: "Vuông (1:1)" },
+              { value: "3:2", label: "Ngang (3:2)" },
+              { value: "16:9", label: "Ngang rộng (16:9)" },
+              { value: "2:3", label: "Dọc (2:3)" },
+              { value: "9:16", label: "Dọc cao (9:16)" },
+            ]} />
+            <Select label="Độ phân giải" value={resolution} onChange={setResolution} options={[
+              { value: "1K", label: "1K (1024px)" },
+              { value: "1.5K", label: "1.5K (1536px)" },
+              { value: "2K", label: "2K (2048px)" },
+              { value: "4K", label: "4K (3840px)" },
             ]} />
             <Select label="Chất lượng" value={quality} onChange={setQuality} options={[
               { value: "standard", label: "Tiêu chuẩn" },

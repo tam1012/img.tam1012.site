@@ -4,14 +4,16 @@ import type { ProviderConfig } from "../db";
 
 export interface GenerateParams {
   prompt: string;
-  size: "square" | "landscape" | "portrait";
+  width: number;
+  height: number;
   quality: "standard" | "high";
 }
 
 export interface EditParams {
   images: { buffer: Buffer; mimeType: string }[];
   prompt: string;
-  size: "square" | "landscape" | "portrait";
+  width: number;
+  height: number;
 }
 
 export interface GeneratedImage {
@@ -20,11 +22,37 @@ export interface GeneratedImage {
   model: string;
 }
 
-const OPENAI_SIZE_MAP: Record<string, string> = {
-  square: "1024x1024",
-  landscape: "1536x1024",
-  portrait: "1024x1536",
-};
+function roundTo16(n: number): number {
+  return Math.round(n / 16) * 16;
+}
+
+export function computePixelSize(aspectRatio: string, resolution: string): { width: number; height: number } {
+  const longEdge: Record<string, number> = { "1K": 1024, "1.5K": 1536, "2K": 2048, "4K": 3840 };
+  const ratios: Record<string, [number, number]> = {
+    "1:1": [1, 1], "3:2": [3, 2], "16:9": [16, 9], "2:3": [2, 3], "9:16": [9, 16],
+  };
+  const base = longEdge[resolution] || 1024;
+  const [aw, ah] = ratios[aspectRatio] || [1, 1];
+
+  let width: number, height: number;
+  if (aw >= ah) {
+    width = base;
+    height = roundTo16(base * ah / aw);
+  } else {
+    height = base;
+    width = roundTo16(base * aw / ah);
+  }
+
+  // gpt-image-2: max 8,294,400 total pixels
+  const maxPixels = 8_294_400;
+  if (width * height > maxPixels) {
+    const scale = Math.sqrt(maxPixels / (width * height));
+    width = roundTo16(Math.floor(width * scale));
+    height = roundTo16(Math.floor(height * scale));
+  }
+
+  return { width, height };
+}
 
 function isOpenAICompatModelFamily(model: string, family: "gemini" | "imagen"): boolean {
   const m = model.toLowerCase();
@@ -79,7 +107,7 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
 
   if (shouldUseChatForOpenAI(config.model)) {
     try {
-      return await chatCompletionsGenerate(client, config.model, params.prompt);
+      return await chatCompletionsGenerate(client, config.model, params);
     } catch (err: unknown) {
       throw new Error(`Tạo ảnh thất bại với model "${config.model}": ${errorMessage(err)}`);
     }
@@ -89,7 +117,7 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
     const response = await client.images.generate({
       model: config.model,
       prompt: params.prompt,
-      size: OPENAI_SIZE_MAP[params.size] as "1024x1024" | "1536x1024" | "1024x1536",
+      size: `${params.width}x${params.height}` as "1024x1024",
       quality: params.quality === "high" ? "high" : "medium",
       n: 1,
     });
@@ -99,7 +127,7 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
       // Chỉ fallback sang chat completions nếu KHÔNG phải lỗi content policy
       if (!isContentPolicyError(err)) {
         try {
-          return await chatCompletionsGenerate(client, config.model, params.prompt);
+          return await chatCompletionsGenerate(client, config.model, params);
         } catch {
           // Fallback thất bại -> ném lại lỗi gốc từ images.generate,
           // không để lỗi 503 từ chat đè lên
@@ -138,7 +166,7 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
       model: config.model,
       image: file,
       prompt: params.prompt,
-      size: OPENAI_SIZE_MAP[params.size] as "1024x1024" | "1536x1024" | "1024x1536",
+      size: `${params.width}x${params.height}` as "1024x1024",
     });
     const b64 = response.data?.[0]?.b64_json;
     if (!b64) throw new Error("Provider không trả về ảnh chỉnh sửa");
@@ -167,22 +195,24 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
   }
 }
 
-async function chatCompletionsGenerate(client: OpenAI, model: string, prompt: string): Promise<GeneratedImage> {
+async function chatCompletionsGenerate(client: OpenAI, model: string, params: GenerateParams): Promise<GeneratedImage> {
+  const sizeHint = `[Output image: ${params.width}x${params.height}px, ${params.quality === "high" ? "highest" : "standard"} quality]`;
   const response = await client.chat.completions.create({
     model,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content: `${sizeHint}\n${params.prompt}` }],
     max_tokens: 4096,
   });
   return extractChatImage(response, model);
 }
 
 async function chatCompletionsEdit(client: OpenAI, model: string, params: EditParams): Promise<GeneratedImage> {
+  const sizeHint = `[Output image: ${params.width}x${params.height}px]`;
   const content: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
     ...params.images.map((img) => ({
       type: "image_url" as const,
       image_url: { url: `data:${img.mimeType || "image/png"};base64,${img.buffer.toString("base64")}` },
     })),
-    { type: "text" as const, text: params.prompt },
+    { type: "text" as const, text: `${sizeHint}\n${params.prompt}` },
   ];
   const response = await client.chat.completions.create({
     model,

@@ -23,7 +23,9 @@ export default function EditPage() {
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [size, setSize] = useState("square");
+  const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [resolution, setResolution] = useState("1K");
+  const [quality, setQuality] = useState("high");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
@@ -103,7 +105,9 @@ export default function EditPage() {
     }
     formData.append("prompt", prompt.trim());
     formData.append("provider_id", providerId);
-    formData.append("size", size);
+    formData.append("aspect_ratio", aspectRatio);
+    formData.append("resolution", resolution);
+    formData.append("quality", quality);
 
     try {
       const res = await fetch("/api/edit", {
@@ -201,15 +205,23 @@ export default function EditPage() {
                 {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </label>
-            <label className="flex items-center gap-2 text-sm text-zinc-400">
-              Kích thước
-              <select value={size} onChange={(e) => setSize(e.target.value)}
-                className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer">
-                <option value="square">Vuông (1:1)</option>
-                <option value="landscape">Ngang (3:2)</option>
-                <option value="portrait">Dọc (2:3)</option>
-              </select>
-            </label>
+            <Select label="Tỷ lệ" value={aspectRatio} onChange={setAspectRatio} options={[
+              { value: "1:1", label: "Vuông (1:1)" },
+              { value: "3:2", label: "Ngang (3:2)" },
+              { value: "16:9", label: "Ngang rộng (16:9)" },
+              { value: "2:3", label: "Dọc (2:3)" },
+              { value: "9:16", label: "Dọc cao (9:16)" },
+            ]} />
+            <Select label="Độ phân giải" value={resolution} onChange={setResolution} options={[
+              { value: "1K", label: "1K (1024px)" },
+              { value: "1.5K", label: "1.5K (1536px)" },
+              { value: "2K", label: "2K (2048px)" },
+              { value: "4K", label: "4K (3840px)" },
+            ]} />
+            <Select label="Chất lượng" value={quality} onChange={setQuality} options={[
+              { value: "standard", label: "Tiêu chuẩn" },
+              { value: "high", label: "Cao" },
+            ]} />
           </div>
 
           <button
@@ -260,5 +272,20 @@ export default function EditPage() {
         <p className="text-xs text-zinc-600 text-center mt-8">Ctrl+Enter để chỉnh sửa nhanh · Ctrl+V để dán ảnh</p>
       </main>
     </div>
+  );
+}
+
+function Select({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm text-zinc-400">
+      {label}
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer">
+        {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+      </select>
+    </label>
   );
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, getRole } from "@/lib/auth";
 import { getProviderById, countImagesByCreatorToday } from "@/lib/db";
-import { generateImage } from "@/lib/providers";
+import { generateImage, computePixelSize } from "@/lib/providers";
 import { saveImage } from "@/lib/storage";
 
 const GUEST_DAILY_QUOTA = 50;
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { prompt, provider_id, size = "square", quality = "standard" } = body;
+    const { prompt, provider_id, aspect_ratio = "1:1", resolution = "1K", quality = "standard" } = body;
 
     if (!prompt?.trim()) {
       return NextResponse.json({ error: "Vui lòng nhập mô tả" }, { status: 400 });
@@ -33,14 +33,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Provider không tồn tại" }, { status: 404 });
     }
 
-    const result = await generateImage(provider, { prompt: prompt.trim(), size, quality });
+    const { width, height } = computePixelSize(aspect_ratio, resolution);
+    const result = await generateImage(provider, { prompt: prompt.trim(), width, height, quality });
 
     const record = saveImage(result.data, result.mimeType, {
       prompt: prompt.trim(),
       providerId: provider.id,
       providerName: provider.name,
       model: result.model,
-      size,
+      size: `${width}x${height}`,
       quality,
       createdBy: role || "admin",
     });
