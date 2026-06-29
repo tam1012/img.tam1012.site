@@ -7,6 +7,9 @@ export function middleware(req: NextRequest) {
   const isPublic = pathname === "/login" || pathname === "/api/auth" || pathname.startsWith("/api/images/");
 
   if (!session && !isPublic) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
+    }
     return NextResponse.redirect(new URL("/login", req.url));
   }
 

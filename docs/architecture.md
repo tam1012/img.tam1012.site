@@ -109,18 +109,19 @@ Tương tự tạo ảnh, nhưng:
 
 ## Provider abstraction
 
-Mỗi provider implement interface:
+Tất cả provider xử lý trong 1 file `src/lib/providers/custom.ts`, chia theo `api_type`:
 
+- **OpenAI-compatible** (`api_type: "openai"`) — dùng OpenAI SDK. Model Gemini/Imagen qua proxy được tự động route sang chat completions thay vì images endpoint.
+- **Google Gemini** (`api_type: "gemini"`) — dùng `@google/generative-ai` SDK trực tiếp.
+
+Provider config do user quản lý qua trang Settings (lưu trong `db.json`), không hardcode trong code hay env.
+
+Hai hàm chính:
 ```typescript
-interface ImageProvider {
-  name: string;
-  generate(params: GenerateParams): Promise<GeneratedImage>;
-  edit(params: EditParams): Promise<GeneratedImage>;
-}
+generateImage(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage>
+editImage(config: ProviderConfig, params: EditParams): Promise<GeneratedImage>
 ```
-
-Thêm provider mới: tạo file trong `src/lib/providers/`, implement interface, đăng ký trong `index.ts`.
 
 ---
 
-*Cập nhật lần cuối: 2026-06-22*
+*Cập nhật lần cuối: 2026-06-29*
