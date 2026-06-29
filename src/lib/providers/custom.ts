@@ -26,6 +26,24 @@ const OPENAI_SIZE_MAP: Record<string, string> = {
   portrait: "1024x1536",
 };
 
+function isOpenAICompatModelFamily(model: string, family: "gemini" | "imagen"): boolean {
+  const m = model.toLowerCase();
+  return new RegExp(`(^|[\\/_.:-])${family}($|[\\/_.:-])`).test(m);
+}
+
+/** Model Gemini hoặc Imagen qua OpenAI-compatible proxy dùng chat completions thay vì images endpoint. */
+function shouldUseChatForOpenAI(model: string): boolean {
+  return isOpenAICompatModelFamily(model, "gemini") || isOpenAICompatModelFamily(model, "imagen");
+}
+
+function isImagenModel(model: string): boolean {
+  return isOpenAICompatModelFamily(model, "imagen");
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Kiểm tra lỗi 400 có phải là content policy / moderation không. */
 function isContentPolicyError(err: unknown): boolean {
   if (!(err instanceof OpenAI.APIError)) return false;
@@ -58,6 +76,15 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
     apiKey: config.api_key,
     baseURL: config.base_url || undefined,
   });
+
+  if (shouldUseChatForOpenAI(config.model)) {
+    try {
+      return await chatCompletionsGenerate(client, config.model, params.prompt);
+    } catch (err: unknown) {
+      throw new Error(`Tạo ảnh thất bại với model "${config.model}": ${errorMessage(err)}`);
+    }
+  }
+
   try {
     const response = await client.images.generate({
       model: config.model,
@@ -84,14 +111,27 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
 }
 
 async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
-  if (params.images.length > 1) {
-    throw new Error("OpenAI chỉ hỗ trợ chỉnh sửa 1 ảnh. Vui lòng chọn provider Gemini để ghép nhiều ảnh.");
-  }
-  const img = params.images[0];
   const client = new OpenAI({
     apiKey: config.api_key,
     baseURL: config.base_url || undefined,
   });
+
+  if (isImagenModel(config.model)) {
+    throw new Error(`Chỉnh sửa ảnh thất bại với model "${config.model}": Model Imagen chỉ hỗ trợ tạo ảnh mới, không hỗ trợ chỉnh sửa ảnh.`);
+  }
+
+  if (shouldUseChatForOpenAI(config.model)) {
+    try {
+      return await chatCompletionsEdit(client, config.model, params);
+    } catch (err: unknown) {
+      throw new Error(`Chỉnh sửa ảnh thất bại với model "${config.model}": ${errorMessage(err)}`);
+    }
+  }
+
+  if (params.images.length > 1) {
+    throw new Error("OpenAI chỉ hỗ trợ chỉnh sửa 1 ảnh. Vui lòng chọn provider Gemini để ghép nhiều ảnh.");
+  }
+  const img = params.images[0];
   try {
     const file = await toFile(img.buffer, "image.png", { type: "image/png" });
     const response = await client.images.edit({
@@ -115,12 +155,11 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
       // → thử fallback chat completions (Gemini multimodal hoạt động qua đây)
       try {
         return await chatCompletionsEdit(client, config.model, params);
-      } catch {
-        // Fallback cũng thất bại (vd Imagen: token overflow vì base64)
-        // → ném lỗi gốc từ images.edit, kèm gợi ý đổi model
+      } catch (fallbackErr: unknown) {
+        const fallbackMessage = errorMessage(fallbackErr);
+        // Fallback cũng thất bại → hiển thị cả lỗi images.edit và lỗi chat thật để không che nguyên nhân.
         throw new Error(
-          `Chỉnh sửa ảnh thất bại với model "${config.model}": ${err.message}\n` +
-          `Nếu model này không hỗ trợ chỉnh sửa ảnh, hãy dùng Gemini image hoặc GPT Image.`
+          `Chỉnh sửa ảnh thất bại với model "${config.model}": images.edit: ${err.message}; chat.completions fallback: ${fallbackMessage}`
         );
       }
     }
