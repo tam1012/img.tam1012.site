@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { width, height } = computePixelSize(aspect_ratio, resolution);
-    const result = await generateImage(provider, { prompt: prompt.trim(), width, height, quality });
+    const result = await generateImage(provider, { prompt: prompt.trim(), width, height, quality, aspectRatio: aspect_ratio, resolution });
 
     const record = saveImage(result.data, result.mimeType, {
       prompt: prompt.trim(),

@@ -54,6 +54,8 @@ export async function POST(req: NextRequest) {
       width,
       height,
       quality: quality as "standard" | "high",
+      aspectRatio,
+      resolution,
     });
 
     const record = saveImage(result.data, result.mimeType, {

@@ -1,5 +1,5 @@
 import OpenAI, { toFile } from "openai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import type { ProviderConfig } from "../db";
 
 export interface GenerateParams {
@@ -7,6 +7,8 @@ export interface GenerateParams {
   width: number;
   height: number;
   quality: "standard" | "high";
+  aspectRatio: string;
+  resolution: string;
 }
 
 export interface EditParams {
@@ -15,6 +17,8 @@ export interface EditParams {
   width: number;
   height: number;
   quality: "standard" | "high";
+  aspectRatio: string;
+  resolution: string;
 }
 
 export interface GeneratedImage {
@@ -284,34 +288,45 @@ async function extractOpenAIImage(response: OpenAI.Images.ImagesResponse, modelN
 }
 
 async function geminiGenerate(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage> {
-  const genAI = new GoogleGenerativeAI(config.api_key);
-  const model = genAI.getGenerativeModel({
+  const ai = new GoogleGenAI({ apiKey: config.api_key });
+  const response = await ai.models.generateContent({
     model: config.model,
-    generationConfig: { responseModalities: ["IMAGE", "TEXT"] } as never,
+    contents: params.prompt,
+    config: {
+      responseModalities: ["IMAGE", "TEXT"],
+      imageConfig: {
+        aspectRatio: params.aspectRatio,
+        imageSize: params.resolution,
+      },
+    },
   });
-  const result = await model.generateContent(`${buildImageInstructionPrefix(params)}${params.prompt}`);
-  return extractGeminiImage(result, config.model);
+  return extractNewGeminiImage(response, config.model);
 }
 
 async function geminiEdit(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
-  const genAI = new GoogleGenerativeAI(config.api_key);
-  const model = genAI.getGenerativeModel({
-    model: config.model,
-    generationConfig: { responseModalities: ["IMAGE", "TEXT"] } as never,
-  });
+  const ai = new GoogleGenAI({ apiKey: config.api_key });
   const parts = [
     ...params.images.map((img) => ({
       inlineData: { mimeType: img.mimeType || "image/png", data: img.buffer.toString("base64") },
     })),
-    { text: `${buildImageInstructionPrefix(params)}${params.prompt}` },
+    { text: params.prompt },
   ];
-  const result = await model.generateContent(parts);
-  return extractGeminiImage(result, config.model);
+  const response = await ai.models.generateContent({
+    model: config.model,
+    contents: parts,
+    config: {
+      responseModalities: ["IMAGE", "TEXT"],
+      imageConfig: {
+        aspectRatio: params.aspectRatio,
+        imageSize: params.resolution,
+      },
+    },
+  });
+  return extractNewGeminiImage(response, config.model);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractGeminiImage(result: any, modelName: string): GeneratedImage {
-  const parts = result.response.candidates?.[0]?.content?.parts;
+function extractNewGeminiImage(response: { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> } }> }, modelName: string): GeneratedImage {
+  const parts = response.candidates?.[0]?.content?.parts;
   if (parts) {
     for (const part of parts) {
       if (part.inlineData?.data) {
