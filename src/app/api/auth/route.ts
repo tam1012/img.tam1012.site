@@ -30,12 +30,6 @@ export async function POST(req: NextRequest) {
     await session.save();
 
     const res = NextResponse.json({ ok: true, role });
-    res.cookies.set("img-role", role, {
-      httpOnly: false,
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 30,
-      secure: process.env.NODE_ENV === "production",
-    });
     return res;
   } catch {
     return NextResponse.json({ error: "Lỗi đăng nhập" }, { status: 500 });
@@ -46,6 +40,5 @@ export async function DELETE() {
   const session = await getSession();
   session.destroy();
   const res = NextResponse.json({ ok: true });
-  res.cookies.delete("img-role");
   return res;
 }
