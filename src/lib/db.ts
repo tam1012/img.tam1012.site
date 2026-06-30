@@ -29,6 +29,8 @@ export interface ImageRecord {
   original_image_id: string | null;
   created_by: string;
   created_at: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 interface DbData {
@@ -105,30 +107,36 @@ export function deleteProvider(id: string): boolean {
 }
 
 // Image operations
+function isVisibleImage(img: ImageRecord): boolean {
+  return !img.deleted_at;
+}
+
 export function insertImage(record: ImageRecord) {
   const db = readDb();
   db.images.unshift(record);
   writeDb(db);
 }
 
-export function getImageById(id: string): ImageRecord | null {
-  return readDb().images.find((img) => img.id === id) || null;
+export function getImageById(id: string, includeDeleted = false): ImageRecord | null {
+  const image = readDb().images.find((img) => img.id === id) || null;
+  if (!image || (!includeDeleted && !isVisibleImage(image))) return null;
+  return image;
 }
 
 export function listImages(limit = 50, offset = 0, creator?: string): ImageRecord[] {
-  let images = readDb().images;
+  let images = readDb().images.filter(isVisibleImage);
   if (creator) images = images.filter((img) => img.created_by === creator);
   return images.slice(offset, offset + limit);
 }
 
 export function countImages(creator?: string): number {
-  const images = readDb().images;
+  const images = readDb().images.filter(isVisibleImage);
   if (creator) return images.filter((img) => img.created_by === creator).length;
   return images.length;
 }
 
 export function getUniquePrompts(limit = 30, creator?: string): { prompt: string; provider_name: string; model: string; created_at: string }[] {
-  let images = readDb().images;
+  let images = readDb().images.filter(isVisibleImage);
   if (creator) images = images.filter((img) => img.created_by === creator);
   const seen = new Set<string>();
   const results: { prompt: string; provider_name: string; model: string; created_at: string }[] = [];
@@ -147,8 +155,18 @@ export function getUniquePrompts(limit = 30, creator?: string): { prompt: string
   return results;
 }
 
+export function softDeleteImage(id: string, deletedBy: string): boolean {
+  const db = readDb();
+  const image = db.images.find((img) => img.id === id);
+  if (!image || image.deleted_at) return false;
+  image.deleted_at = new Date().toISOString();
+  image.deleted_by = deletedBy;
+  writeDb(db);
+  return true;
+}
+
 export function countImagesByCreator(creator: string): number {
-  return readDb().images.filter((img) => img.created_by === creator).length;
+  return readDb().images.filter((img) => isVisibleImage(img) && img.created_by === creator).length;
 }
 
 export function countImagesByCreatorToday(creator: string): number {

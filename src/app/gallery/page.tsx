@@ -23,23 +23,37 @@ export default function GalleryPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [role, setRole] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const fetchImages = useCallback(async (p: number) => {
     setLoading(true);
+    setError("");
     try {
       const res = await fetch(`/api/gallery?page=${p}`);
-      const data = await res.json();
-      if (res.ok) {
-        setImages(data.images);
-        setTotalPages(data.totalPages);
-        setPage(data.page);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(data?.error || "Không tải được thư viện ảnh");
+        return;
       }
+      setImages(data.images);
+      setTotalPages(data.totalPages);
+      setPage(data.page);
+    } catch {
+      setError("Không tải được thư viện ảnh");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { fetchImages(1); }, [fetchImages]);
+
+  useEffect(() => {
+    fetch("/api/auth").then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d?.role) setRole(d.role);
+    });
+  }, []);
 
   useEffect(() => {
     function handleEsc(e: KeyboardEvent) { if (e.key === "Escape") { setSelected(null); setExpandPrompt(false); setCopied(false); } }
@@ -60,10 +74,37 @@ export default function GalleryPage() {
     });
   }
 
+  async function handleDelete(img: ImageRecord) {
+    if (!confirm("Xóa ảnh này khỏi thư viện?")) return;
+    setDeletingId(img.id);
+    try {
+      const res = await fetch(`/api/images/${img.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.error || "Không xóa được ảnh");
+        return;
+      }
+
+      setSelected(null);
+      setExpandPrompt(false);
+      setCopied(false);
+      const nextPage = images.length === 1 && page > 1 ? page - 1 : page;
+      await fetchImages(nextPage);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <div className="min-h-screen">
       <Header />
       <main className="max-w-5xl mx-auto px-4 py-8">
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-20"><span className="spinner" /></div>
         ) : images.length === 0 ? (
@@ -149,7 +190,13 @@ export default function GalleryPage() {
                   <span className="text-xs text-zinc-500">
                     {selected.provider_name} · {selected.model} · {formatDate(selected.created_at)}
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap justify-end">
+                    {role === "admin" && (
+                      <button onClick={() => handleDelete(selected)} disabled={deletingId === selected.id}
+                        className="px-3 py-1.5 bg-red-950/70 hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed border border-red-900/60 rounded-lg text-xs text-red-200 transition-colors cursor-pointer">
+                        {deletingId === selected.id ? "Đang xóa..." : "Xóa"}
+                      </button>
+                    )}
                     <button onClick={() => {
                         navigator.clipboard.writeText(selected.prompt);
                         setCopied(true);

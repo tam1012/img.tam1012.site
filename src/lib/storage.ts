@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { insertImage, getImageById, listImages as dbListImages, countImages as dbCountImages, getUniquePrompts as dbGetUniquePrompts, ImageRecord } from "./db";
+import { insertImage, getImageById, listImages as dbListImages, countImages as dbCountImages, getUniquePrompts as dbGetUniquePrompts, softDeleteImage as dbSoftDeleteImage, ImageRecord } from "./db";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const IMAGES_DIR = path.join(DATA_DIR, "images");
@@ -68,8 +68,12 @@ export function countImages(creator?: string): number {
   return dbCountImages(creator);
 }
 
-export function getImage(id: string): ImageRecord | null {
-  return getImageById(id);
+export function getImage(id: string, includeDeleted = false): ImageRecord | null {
+  return getImageById(id, includeDeleted);
+}
+
+export function softDeleteImage(id: string, deletedBy: string): boolean {
+  return dbSoftDeleteImage(id, deletedBy);
 }
 
 export function getUniquePrompts(limit = 30, creator?: string) {
