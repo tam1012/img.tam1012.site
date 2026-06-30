@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       resolution,
     });
 
-    const record = saveImage(result.data, result.mimeType, {
+    const record = await saveImage(result.data, result.mimeType, {
       prompt: prompt.trim(),
       editPrompt: prompt.trim(),
       providerId: provider.id,

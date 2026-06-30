@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import sharp from "sharp";
 import { v4 as uuidv4 } from "uuid";
 import { insertImage, getImageById, listImages as dbListImages, countImages as dbCountImages, getUniquePrompts as dbGetUniquePrompts, softDeleteImage as dbSoftDeleteImage, ImageRecord } from "./db";
 
@@ -10,9 +11,16 @@ function ensureDir() {
   fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
-export function saveImage(
+async function encodeOutputImage(data: Buffer): Promise<Buffer> {
+  return sharp(data)
+    .rotate()
+    .webp({ quality: 95, alphaQuality: 100, effort: 4 })
+    .toBuffer();
+}
+
+export async function saveImage(
   data: Buffer,
-  mimeType: string,
+  _mimeType: string,
   meta: {
     prompt: string;
     editPrompt?: string;
@@ -24,15 +32,13 @@ export function saveImage(
     originalImageId?: string;
     createdBy?: string;
   }
-): ImageRecord {
+): Promise<ImageRecord> {
   ensureDir();
   const id = uuidv4();
-  const ext = mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg"
-    : mimeType.includes("webp") ? "webp"
-    : "png";
-  const filename = `${id}.${ext}`;
+  const filename = `${id}.webp`;
+  const encoded = await encodeOutputImage(data);
 
-  fs.writeFileSync(path.join(IMAGES_DIR, filename), data);
+  fs.writeFileSync(path.join(IMAGES_DIR, filename), encoded);
 
   const record: ImageRecord = {
     id,
@@ -44,7 +50,7 @@ export function saveImage(
     size: meta.size || null,
     quality: meta.quality || null,
     filename,
-    mime_type: mimeType,
+    mime_type: "image/webp",
     original_image_id: meta.originalImageId || null,
     created_by: meta.createdBy || "admin",
     created_at: new Date().toISOString(),
