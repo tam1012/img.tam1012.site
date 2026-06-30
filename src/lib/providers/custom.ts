@@ -34,7 +34,7 @@ function roundTo16(n: number): number {
 export function computePixelSize(aspectRatio: string, resolution: string): { width: number; height: number } {
   const longEdge: Record<string, number> = { "1K": 1024, "1.5K": 1536, "2K": 2048, "4K": 3840 };
   const ratios: Record<string, [number, number]> = {
-    "1:1": [1, 1], "3:2": [3, 2], "16:9": [16, 9], "2:3": [2, 3], "9:16": [9, 16],
+    "1:1": [1, 1], "3:2": [3, 2], "4:3": [4, 3], "16:9": [16, 9], "2:3": [2, 3], "3:4": [3, 4], "9:16": [9, 16],
   };
   const base = longEdge[resolution] || 1024;
   const [aw, ah] = ratios[aspectRatio] || [1, 1];
@@ -61,9 +61,19 @@ export function computePixelSize(aspectRatio: string, resolution: string): { wid
 
 /** Tạo prefix hướng dẫn kích thước/chất lượng cho provider không hỗ trợ native params.
  *  Dùng cho Gemini native và chat completions (proxy). */
-function buildImageInstructionPrefix(params: { width: number; height: number; quality: "standard" | "high" }): string {
-  const qualityDesc = params.quality === "high" ? "highest possible" : "standard";
-  return `[Image requirements: ${params.width}x${params.height} pixels, ${qualityDesc} quality]\n`;
+function buildImageInstructionPrefix(params: { width: number; height: number; quality: "standard" | "high"; aspectRatio: string; resolution: string }): string {
+  const qualityDesc = params.quality === "high" ? "high detail, sharp, clean, high fidelity" : "standard quality, clean and natural";
+  return `Output image requirements:
+- Return exactly one final image.
+- Canvas aspect ratio: ${params.aspectRatio}.
+- Target resolution: exactly ${params.width} x ${params.height} pixels.
+- Image size tier: ${params.resolution}.
+- Fill the entire canvas; do not add borders, padding, frames, or letterboxing.
+- Keep the requested aspect ratio; do not crop to a square image unless the requested ratio is 1:1.
+- For edits, preserve the requested output canvas even if the input image has a different shape; naturally extend or crop the scene to fill the canvas.
+- Quality: ${qualityDesc}.
+
+`;
 }
 
 function isOpenAICompatModelFamily(model: string, family: "gemini" | "imagen"): boolean {
@@ -126,9 +136,10 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
   }
 
   try {
+    const prefix = buildImageInstructionPrefix(params);
     const response = await client.images.generate({
       model: config.model,
-      prompt: params.prompt,
+      prompt: `${prefix}${params.prompt}`,
       size: `${params.width}x${params.height}` as "1024x1024",
       quality: params.quality === "high" ? "high" : "medium",
       n: 1,
@@ -174,10 +185,11 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
   const img = params.images[0];
   try {
     const file = await toFile(img.buffer, "image.png", { type: "image/png" });
+    const prefix = buildImageInstructionPrefix(params);
     const response = await client.images.edit({
       model: config.model,
       image: file,
-      prompt: params.prompt,
+      prompt: `${prefix}${params.prompt}`,
       size: `${params.width}x${params.height}` as "1024x1024",
       quality: params.quality === "high" ? "high" : "medium",
     });

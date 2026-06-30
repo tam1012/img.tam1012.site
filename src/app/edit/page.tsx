@@ -252,8 +252,10 @@ export default function EditPage() {
             <Select label="Tỷ lệ" value={aspectRatio} onChange={setAspectRatio} options={[
               { value: "1:1", label: "Vuông (1:1)" },
               { value: "3:2", label: "Ngang (3:2)" },
+              { value: "4:3", label: "Ngang cổ điển (4:3)" },
               { value: "16:9", label: "Ngang rộng (16:9)" },
               { value: "2:3", label: "Dọc (2:3)" },
+              { value: "3:4", label: "Dọc cổ điển (3:4)" },
               { value: "9:16", label: "Dọc cao (9:16)" },
             ]} />
             <Select label="Độ phân giải" value={resolution} onChange={setResolution} options={resolutionOptions} />
