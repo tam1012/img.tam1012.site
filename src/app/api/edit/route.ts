@@ -5,6 +5,15 @@ import { editImage, computePixelSize } from "@/lib/providers";
 import { saveImage } from "@/lib/storage";
 
 const GUEST_DAILY_QUOTA = 50;
+const MAX_EDIT_UPLOAD_BYTES = 9.5 * 1024 * 1024;
+const MAX_EDIT_UPLOAD_LABEL = "9.5MB";
+
+function uploadTooLargeResponse() {
+  return NextResponse.json(
+    { error: `Ảnh tải lên quá lớn. Vui lòng dùng ảnh dưới ${MAX_EDIT_UPLOAD_LABEL} mỗi lần chỉnh sửa.` },
+    { status: 413 }
+  );
+}
 
 export async function POST(req: NextRequest) {
   if (!(await requireAuth())) {
@@ -18,7 +27,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const formData = await req.formData();
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.includes("Failed to parse body as FormData")) {
+        return uploadTooLargeResponse();
+      }
+      throw err;
+    }
     const imageEntries = formData.getAll("images") as File[];
     const prompt = formData.get("prompt") as string;
     const providerId = formData.get("provider_id") as string;
@@ -28,6 +45,10 @@ export async function POST(req: NextRequest) {
 
     if (!imageEntries || imageEntries.length === 0) {
       return NextResponse.json({ error: "Vui lòng chọn ảnh gốc" }, { status: 400 });
+    }
+    const uploadSize = imageEntries.reduce((sum, file) => sum + file.size, 0);
+    if (uploadSize > MAX_EDIT_UPLOAD_BYTES) {
+      return uploadTooLargeResponse();
     }
     if (!prompt?.trim()) {
       return NextResponse.json({ error: "Vui lòng nhập mô tả chỉnh sửa" }, { status: 400 });

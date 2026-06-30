@@ -17,6 +17,13 @@ interface Result {
   model: string;
 }
 
+const MAX_EDIT_UPLOAD_BYTES = 9.5 * 1024 * 1024;
+const MAX_EDIT_UPLOAD_LABEL = "9.5MB";
+
+function totalFileSize(files: File[]) {
+  return files.reduce((sum, file) => sum + file.size, 0);
+}
+
 export default function EditPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerId, setProviderId] = useState("");
@@ -70,8 +77,13 @@ export default function EditPage() {
       setError("Vui lòng chọn file ảnh");
       return;
     }
+    const nextFiles = [...imageFiles, ...validFiles];
+    if (totalFileSize(nextFiles) > MAX_EDIT_UPLOAD_BYTES) {
+      setError(`Tổng dung lượng ảnh tải lên quá lớn. Vui lòng dùng ảnh dưới ${MAX_EDIT_UPLOAD_LABEL} mỗi lần chỉnh sửa.`);
+      return;
+    }
     setError("");
-    setImageFiles((prev) => [...prev, ...validFiles]);
+    setImageFiles(nextFiles);
     for (const file of validFiles) {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -95,6 +107,10 @@ export default function EditPage() {
 
   async function handleEdit() {
     if (imageFiles.length === 0 || !prompt.trim() || loading || !providerId) return;
+    if (totalFileSize(imageFiles) > MAX_EDIT_UPLOAD_BYTES) {
+      setError(`Tổng dung lượng ảnh tải lên quá lớn. Vui lòng dùng ảnh dưới ${MAX_EDIT_UPLOAD_LABEL} mỗi lần chỉnh sửa.`);
+      return;
+    }
     setLoading(true);
     setError("");
     setResult(null);
