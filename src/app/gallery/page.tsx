@@ -168,10 +168,13 @@ export default function GalleryPage() {
         {selected && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
             onClick={() => { setSelected(null); setExpandPrompt(false); setCopied(false); }}>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden max-w-3xl w-full max-h-[90vh] flex flex-col"
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden max-w-3xl w-full h-[90vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}>
-              <div className="overflow-auto flex-1">
-                <img src={`/api/images/${selected.id}`} alt={selected.prompt} className="w-full" />
+              <div className="flex-1 min-h-0 flex items-center justify-center bg-zinc-950 p-2">
+                <a href={`/api/images/${selected.id}`} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex max-w-full max-h-full" title="Mở ảnh trong tab mới">
+                  <img src={`/api/images/${selected.id}`} alt={selected.prompt} className="max-w-full max-h-full object-contain cursor-zoom-in" />
+                </a>
               </div>
               <div className="p-4 border-t border-zinc-800 space-y-2 shrink-0">
                 <div>
