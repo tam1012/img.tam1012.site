@@ -7,11 +7,13 @@ services:
       - "3456:3456"
     volumes:
       - img-data:/data
+      - ./secrets/vertex-service-account.json:/run/secrets/vertex-service-account.json:ro
     env_file:
       - .env
     environment:
       - NODE_ENV=production
       - DATA_DIR=/data
+      - GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/vertex-service-account.json
 
 volumes:
   img-data:

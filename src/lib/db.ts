@@ -7,7 +7,7 @@ const DB_PATH = path.join(DATA_DIR, "db.json");
 export interface ProviderConfig {
   id: string;
   name: string;
-  api_type: "openai" | "gemini";
+  api_type: "openai" | "gemini" | "vertex";
   base_url: string;
   api_key: string;
   model: string;

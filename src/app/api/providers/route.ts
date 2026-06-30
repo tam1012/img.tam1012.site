@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const { name, api_type, base_url, api_key, model, is_default } = body;
 
     if (!name?.trim()) return NextResponse.json({ error: "Vui lòng nhập tên" }, { status: 400 });
-    if (!api_key?.trim()) return NextResponse.json({ error: "Vui lòng nhập API key" }, { status: 400 });
+    if (api_type !== "vertex" && !api_key?.trim()) return NextResponse.json({ error: "Vui lòng nhập API key" }, { status: 400 });
     if (!model?.trim()) return NextResponse.json({ error: "Vui lòng nhập tên model" }, { status: 400 });
 
     const provider: ProviderConfig = {
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       name: name.trim(),
       api_type: api_type || "openai",
       base_url: base_url?.trim() || "",
-      api_key: api_key.trim(),
+      api_key: api_type === "vertex" ? "" : api_key.trim(),
       model: model.trim(),
       is_default: is_default || false,
       created_at: new Date().toISOString(),

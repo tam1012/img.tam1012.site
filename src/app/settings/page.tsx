@@ -69,7 +69,7 @@ export default function SettingsPage() {
       setError("Vui lòng nhập tên và model");
       return;
     }
-    if (!editingId && !form.api_key.trim()) {
+    if (!editingId && form.api_type !== "vertex" && !form.api_key.trim()) {
       setError("Vui lòng nhập API key");
       return;
     }
@@ -152,7 +152,7 @@ export default function SettingsPage() {
                       )}
                     </div>
                     <p className="text-sm text-zinc-500 mt-1">
-                      {p.api_type === "gemini" ? "Gemini" : "OpenAI"} · {p.model} · {p.api_key}
+                      {p.api_type === "vertex" ? "Google Vertex AI" : p.api_type === "gemini" ? "Gemini" : "OpenAI"} · {p.model} · {p.api_key}
                     </p>
                     {p.base_url && (
                       <p className="text-xs text-zinc-600 mt-0.5 truncate">{p.base_url}</p>
@@ -213,6 +213,7 @@ export default function SettingsPage() {
                 >
                   <option value="openai">OpenAI-compatible</option>
                   <option value="gemini">Google Gemini</option>
+                  <option value="vertex">Google Vertex AI</option>
                 </select>
               </div>
             </div>
@@ -230,16 +231,22 @@ export default function SettingsPage() {
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-zinc-500 mb-1.5">API Key</label>
-                <input
-                  value={form.api_key}
-                  onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-                  placeholder={editingId ? "Để nguyên nếu không đổi" : "sk-..."}
-                  type="password"
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-                />
-              </div>
+              {form.api_type !== "vertex" ? (
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1.5">API Key</label>
+                  <input
+                    value={form.api_key}
+                    onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                    placeholder={editingId ? "Để nguyên nếu không đổi" : "sk-..."}
+                    type="password"
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  />
+                </div>
+              ) : (
+                <div className="sm:col-span-1 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-500">
+                  Vertex AI dùng service account JSON trên server, không nhập API key ở đây.
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-zinc-500 mb-1.5">Model</label>
                 <input

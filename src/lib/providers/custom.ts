@@ -1,3 +1,4 @@
+import fs from "fs";
 import OpenAI, { toFile } from "openai";
 import { GoogleGenAI } from "@google/genai";
 import type { ProviderConfig } from "../db";
@@ -111,12 +112,18 @@ export async function generateImage(config: ProviderConfig, params: GeneratePara
   if (config.api_type === "gemini") {
     return geminiGenerate(config, params);
   }
+  if (config.api_type === "vertex") {
+    return vertexGenerate(config, params);
+  }
   return openaiGenerate(config, params);
 }
 
 export async function editImage(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
   if (config.api_type === "gemini") {
     return geminiEdit(config, params);
+  }
+  if (config.api_type === "vertex") {
+    return vertexEdit(config, params);
   }
   return openaiEdit(config, params);
 }
@@ -295,6 +302,82 @@ async function extractOpenAIImage(response: OpenAI.Images.ImagesResponse, modelN
     return { data: buf, mimeType: mime, model: modelName };
   }
   throw new Error("Provider không trả về ảnh");
+}
+
+type VertexCredentialFile = {
+  project_id?: string;
+  location?: string;
+  service_account?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+function getVertexClient() {
+  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  let fileConfig: VertexCredentialFile | null = null;
+  let credentials: Record<string, unknown> | undefined;
+
+  if (credentialsPath && fs.existsSync(credentialsPath)) {
+    fileConfig = JSON.parse(fs.readFileSync(credentialsPath, "utf-8")) as VertexCredentialFile;
+    credentials = fileConfig.service_account || fileConfig;
+  }
+
+  const project = process.env.GOOGLE_CLOUD_PROJECT
+    || process.env.GOOGLE_PROJECT_ID
+    || fileConfig?.project_id
+    || (typeof credentials?.project_id === "string" ? credentials.project_id : undefined);
+  const location = process.env.GOOGLE_CLOUD_LOCATION
+    || process.env.GOOGLE_CLOUD_REGION
+    || fileConfig?.location
+    || "global";
+
+  if (!project) {
+    throw new Error("Vertex AI chưa được cấu hình GOOGLE_CLOUD_PROJECT hoặc project_id trong service account JSON.");
+  }
+
+  return new GoogleGenAI({
+    vertexai: true,
+    project,
+    location,
+    ...(credentials ? { googleAuthOptions: { credentials } } : {}),
+  });
+}
+
+async function vertexGenerate(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage> {
+  const ai = getVertexClient();
+  const response = await ai.models.generateContent({
+    model: config.model,
+    contents: params.prompt,
+    config: {
+      responseModalities: ["IMAGE", "TEXT"],
+      imageConfig: {
+        aspectRatio: params.aspectRatio,
+        imageSize: params.resolution,
+      },
+    },
+  });
+  return extractNewGeminiImage(response, config.model);
+}
+
+async function vertexEdit(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
+  const ai = getVertexClient();
+  const parts = [
+    ...params.images.map((img) => ({
+      inlineData: { mimeType: img.mimeType || "image/png", data: img.buffer.toString("base64") },
+    })),
+    { text: params.prompt },
+  ];
+  const response = await ai.models.generateContent({
+    model: config.model,
+    contents: parts,
+    config: {
+      responseModalities: ["IMAGE", "TEXT"],
+      imageConfig: {
+        aspectRatio: params.aspectRatio,
+        imageSize: params.resolution,
+      },
+    },
+  });
+  return extractNewGeminiImage(response, config.model);
 }
 
 async function geminiGenerate(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage> {
