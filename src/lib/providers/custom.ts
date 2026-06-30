@@ -181,9 +181,7 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
       size: `${params.width}x${params.height}` as "1024x1024",
       quality: params.quality === "high" ? "high" : "medium",
     });
-    const b64 = response.data?.[0]?.b64_json;
-    if (!b64) throw new Error("Provider không trả về ảnh chỉnh sửa");
-    return { data: Buffer.from(b64, "base64"), mimeType: "image/png", model: config.model };
+    return extractOpenAIImage(response, config.model);
   } catch (err: unknown) {
     if (err instanceof OpenAI.APIError && err.status === 400) {
       // Lỗi content policy → throw thẳng, không fallback, không gợi ý thừa
