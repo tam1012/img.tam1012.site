@@ -7,6 +7,11 @@ import { saveImage } from "@/lib/storage";
 const GUEST_DAILY_QUOTA = 50;
 const MAX_EDIT_UPLOAD_BYTES = 9.5 * 1024 * 1024;
 const MAX_EDIT_UPLOAD_LABEL = "9.5MB";
+const WAN_EDIT_4K_MESSAGE = "Wan2.7 chỉ hỗ trợ chỉnh sửa tối đa 2K. Vui lòng chọn 2K hoặc thấp hơn.";
+
+function isWan27ImageModel(model: string) {
+  return model.toLowerCase().includes("wan2.7-image");
+}
 
 function uploadTooLargeResponse() {
   return NextResponse.json(
@@ -60,6 +65,9 @@ export async function POST(req: NextRequest) {
     const provider = getProviderById(providerId);
     if (!provider) {
       return NextResponse.json({ error: "Provider không tồn tại" }, { status: 404 });
+    }
+    if (isWan27ImageModel(provider.model) && resolution === "4K") {
+      return NextResponse.json({ error: WAN_EDIT_4K_MESSAGE }, { status: 400 });
     }
 
     const images = await Promise.all(

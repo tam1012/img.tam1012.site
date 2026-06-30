@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 interface Provider {
   id: string;
   name: string;
+  model: string;
   is_default: boolean;
 }
 
@@ -19,6 +20,17 @@ interface Result {
 
 const MAX_EDIT_UPLOAD_BYTES = 9.5 * 1024 * 1024;
 const MAX_EDIT_UPLOAD_LABEL = "9.5MB";
+const WAN_EDIT_4K_MESSAGE = "Wan2.7 chỉ hỗ trợ chỉnh sửa tối đa 2K. Vui lòng chọn 2K hoặc thấp hơn.";
+const ALL_RESOLUTION_OPTIONS = [
+  { value: "1K", label: "1K (1024px)" },
+  { value: "1.5K", label: "1.5K (1536px)" },
+  { value: "2K", label: "2K (2048px)" },
+  { value: "4K", label: "4K (3840px)" },
+];
+
+function isWan27ImageModel(model?: string) {
+  return model?.toLowerCase().includes("wan2.7-image") === true;
+}
 
 function totalFileSize(files: File[]) {
   return files.reduce((sum, file) => sum + file.size, 0);
@@ -38,6 +50,11 @@ export default function EditPage() {
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedProvider = providers.find((p) => p.id === providerId);
+  const isWan27Edit = isWan27ImageModel(selectedProvider?.model);
+  const resolutionOptions = isWan27Edit
+    ? ALL_RESOLUTION_OPTIONS.filter((opt) => opt.value !== "4K")
+    : ALL_RESOLUTION_OPTIONS;
 
   const fetchProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
@@ -50,6 +67,13 @@ export default function EditPage() {
   }, []);
 
   useEffect(() => { fetchProviders(); }, [fetchProviders]);
+
+  useEffect(() => {
+    if (isWan27Edit && resolution === "4K") {
+      setResolution("2K");
+      setError(WAN_EDIT_4K_MESSAGE);
+    }
+  }, [isWan27Edit, resolution]);
 
   useEffect(() => {
     function handlePaste(e: ClipboardEvent) {
@@ -109,6 +133,10 @@ export default function EditPage() {
     if (imageFiles.length === 0 || !prompt.trim() || loading || !providerId) return;
     if (totalFileSize(imageFiles) > MAX_EDIT_UPLOAD_BYTES) {
       setError(`Tổng dung lượng ảnh tải lên quá lớn. Vui lòng dùng ảnh dưới ${MAX_EDIT_UPLOAD_LABEL} mỗi lần chỉnh sửa.`);
+      return;
+    }
+    if (isWan27Edit && resolution === "4K") {
+      setError(WAN_EDIT_4K_MESSAGE);
       return;
     }
     setLoading(true);
@@ -228,12 +256,7 @@ export default function EditPage() {
               { value: "2:3", label: "Dọc (2:3)" },
               { value: "9:16", label: "Dọc cao (9:16)" },
             ]} />
-            <Select label="Độ phân giải" value={resolution} onChange={setResolution} options={[
-              { value: "1K", label: "1K (1024px)" },
-              { value: "1.5K", label: "1.5K (1536px)" },
-              { value: "2K", label: "2K (2048px)" },
-              { value: "4K", label: "4K (3840px)" },
-            ]} />
+            <Select label="Độ phân giải" value={resolution} onChange={setResolution} options={resolutionOptions} />
             <Select label="Chất lượng" value={quality} onChange={setQuality} options={[
               { value: "standard", label: "Tiêu chuẩn" },
               { value: "high", label: "Cao" },
