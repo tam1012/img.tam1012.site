@@ -82,6 +82,29 @@ function isOpenAICompatModelFamily(model: string, family: "gemini" | "imagen"): 
   return new RegExp(`(^|[\\/_.:-])${family}($|[\\/_.:-])`).test(m);
 }
 
+type GeminiChatGenerationConfig = {
+  generationConfig?: {
+    responseModalities: string[];
+    imageConfig: {
+      aspectRatio: string;
+      imageSize: string;
+    };
+  };
+};
+
+function geminiChatGenerationConfig(model: string, params: { aspectRatio: string; resolution: string }): GeminiChatGenerationConfig {
+  if (!isOpenAICompatModelFamily(model, "gemini")) return {};
+  return {
+    generationConfig: {
+      responseModalities: ["IMAGE", "TEXT"],
+      imageConfig: {
+        aspectRatio: params.aspectRatio,
+        imageSize: params.resolution,
+      },
+    },
+  };
+}
+
 /** Model Gemini hoặc Imagen qua OpenAI-compatible proxy dùng chat completions thay vì images endpoint. */
 function shouldUseChatForOpenAI(model: string): boolean {
   return isOpenAICompatModelFamily(model, "gemini") || isOpenAICompatModelFamily(model, "imagen");
@@ -227,11 +250,13 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
 
 async function chatCompletionsGenerate(client: OpenAI, model: string, params: GenerateParams): Promise<GeneratedImage> {
   const prefix = buildImageInstructionPrefix(params);
-  const response = await client.chat.completions.create({
+  const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & GeminiChatGenerationConfig = {
     model,
     messages: [{ role: "user", content: `${prefix}${params.prompt}` }],
     max_tokens: 4096,
-  });
+    ...geminiChatGenerationConfig(model, params),
+  };
+  const response = await client.chat.completions.create(request);
   return extractChatImage(response, model);
 }
 
@@ -244,11 +269,13 @@ async function chatCompletionsEdit(client: OpenAI, model: string, params: EditPa
     })),
     { type: "text" as const, text: `${prefix}${params.prompt}` },
   ];
-  const response = await client.chat.completions.create({
+  const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming & GeminiChatGenerationConfig = {
     model,
     messages: [{ role: "user", content }],
     max_tokens: 4096,
-  });
+    ...geminiChatGenerationConfig(model, params),
+  };
+  const response = await client.chat.completions.create(request);
   return extractChatImage(response, model);
 }
 
