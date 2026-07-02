@@ -11,11 +11,35 @@ function ensureDir() {
   fs.mkdirSync(IMAGES_DIR, { recursive: true });
 }
 
+function getSafeImagePath(filename: string): string | null {
+  if (!filename || filename.includes("/") || filename.includes("\\") || filename.includes("..")) return null;
+  return path.join(IMAGES_DIR, filename);
+}
+
+function getThumbnailFilename(filename: string): string {
+  return `${path.parse(filename).name}.thumb.webp`;
+}
+
 async function encodeOutputImage(data: Buffer): Promise<Buffer> {
   return sharp(data)
     .rotate()
     .webp({ quality: 95, alphaQuality: 100, effort: 4 })
     .toBuffer();
+}
+
+async function encodeThumbnailImage(data: Buffer): Promise<Buffer> {
+  return sharp(data)
+    .rotate()
+    .resize(512, 512, { fit: "cover", position: "centre" })
+    .webp({ quality: 78, effort: 4 })
+    .toBuffer();
+}
+
+async function saveThumbnailFile(filename: string, data: Buffer): Promise<void> {
+  const filePath = getSafeImagePath(getThumbnailFilename(filename));
+  if (!filePath) return;
+  const thumbnail = await encodeThumbnailImage(data);
+  fs.writeFileSync(filePath, thumbnail);
 }
 
 export async function saveImage(
@@ -39,6 +63,11 @@ export async function saveImage(
   const encoded = await encodeOutputImage(data);
 
   fs.writeFileSync(path.join(IMAGES_DIR, filename), encoded);
+  try {
+    await saveThumbnailFile(filename, encoded);
+  } catch {
+    // Ảnh gốc vẫn dùng được; thumbnail sẽ được thử sinh lại khi request.
+  }
 
   const record: ImageRecord = {
     id,
@@ -61,9 +90,32 @@ export async function saveImage(
 }
 
 export function getImageFile(filename: string): Buffer | null {
-  const filePath = path.join(IMAGES_DIR, filename);
-  if (!fs.existsSync(filePath)) return null;
+  const filePath = getSafeImagePath(filename);
+  if (!filePath || !fs.existsSync(filePath)) return null;
   return fs.readFileSync(filePath);
+}
+
+export async function getImageThumbnailFile(filename: string): Promise<{ data: Buffer; isFallback: boolean } | null> {
+  const thumbnailPath = getSafeImagePath(getThumbnailFilename(filename));
+  if (thumbnailPath && fs.existsSync(thumbnailPath)) {
+    try {
+      return { data: fs.readFileSync(thumbnailPath), isFallback: false };
+    } catch {
+      // Nếu thumbnail lỗi quyền đọc/file hỏng, thử dùng ảnh gốc bên dưới.
+    }
+  }
+
+  const original = getImageFile(filename);
+  if (!original) return null;
+
+  try {
+    if (!thumbnailPath) return { data: original, isFallback: true };
+    const thumbnail = await encodeThumbnailImage(original);
+    fs.writeFileSync(thumbnailPath, thumbnail);
+    return { data: thumbnail, isFallback: false };
+  } catch {
+    return { data: original, isFallback: true };
+  }
 }
 
 export function listImages(limit = 50, offset = 0, creator?: string): ImageRecord[] {

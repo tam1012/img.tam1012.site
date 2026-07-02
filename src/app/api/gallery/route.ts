@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, getRole } from "@/lib/auth";
 import { listImages, countImages } from "@/lib/storage";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 32;
 
 export async function GET(req: NextRequest) {
   if (!(await requireAuth())) {

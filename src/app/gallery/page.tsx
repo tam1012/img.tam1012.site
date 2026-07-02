@@ -118,7 +118,7 @@ export default function GalleryPage() {
               {images.map((img) => (
                 <button key={img.id} onClick={() => setSelected(img)}
                   className="group relative bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden aspect-square cursor-pointer">
-                  <img src={`/api/images/${img.id}`} alt={img.prompt} className="w-full h-full object-cover" loading="lazy" />
+                  <img src={`/api/images/${img.id}?thumb=1`} alt={img.prompt} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className="absolute bottom-0 left-0 right-0 p-3">
                       <p className="text-xs text-zinc-200 line-clamp-2">{img.prompt}</p>
@@ -173,7 +173,7 @@ export default function GalleryPage() {
               <div className="flex-1 min-h-0 flex items-center justify-center bg-zinc-950 p-2">
                 <a href={`/api/images/${selected.id}`} target="_blank" rel="noopener noreferrer"
                   className="inline-flex max-w-full max-h-full" title="Mở ảnh trong tab mới">
-                  <img src={`/api/images/${selected.id}`} alt={selected.prompt} className="max-w-full max-h-full object-contain cursor-zoom-in" />
+                  <img src={`/api/images/${selected.id}`} alt={selected.prompt} className="max-w-full max-h-full object-contain cursor-zoom-in" decoding="async" />
                 </a>
               </div>
               <div className="p-4 border-t border-zinc-800 space-y-2 shrink-0">

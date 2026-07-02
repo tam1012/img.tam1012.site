@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getImage, getImageFile, softDeleteImage } from "@/lib/storage";
+import { getImage, getImageFile, getImageThumbnailFile, softDeleteImage } from "@/lib/storage";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -12,16 +12,22 @@ export async function GET(
     return NextResponse.json({ error: "Không tìm thấy ảnh" }, { status: 404 });
   }
 
-  const data = getImageFile(record.filename);
+  const isThumbnail = req.nextUrl.searchParams.get("thumb") === "1";
+  const thumbnail = isThumbnail ? await getImageThumbnailFile(record.filename) : null;
+  const data = thumbnail?.data ?? getImageFile(record.filename);
   if (!data) {
     return NextResponse.json({ error: "File ảnh bị mất" }, { status: 404 });
   }
 
+  const isThumbnailFallback = Boolean(thumbnail?.isFallback);
+
   return new NextResponse(new Uint8Array(data), {
     headers: {
-      "Content-Type": record.mime_type,
-      "Cache-Control": "private, no-store",
-      "Content-Disposition": `inline; filename="${record.filename}"`,
+      "Content-Type": isThumbnail && !isThumbnailFallback ? "image/webp" : record.mime_type,
+      "Cache-Control": isThumbnailFallback
+        ? "private, no-store"
+        : "private, max-age=31536000, immutable",
+      "Content-Disposition": `inline; filename="${isThumbnail && !isThumbnailFallback ? `${id}.thumb.webp` : record.filename}"`,
     },
   });
 }
