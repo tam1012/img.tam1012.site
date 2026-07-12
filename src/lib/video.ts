@@ -410,6 +410,24 @@ export async function getVideoById(id: string) {
   return prisma.video.findUnique({ where: { id } });
 }
 
+/** Xóa hẳn video: file mp4 + thumbnail + record DB. Ledger dùng SetNull nên không kẹt khóa ngoại. */
+export async function deleteVideo(id: string): Promise<boolean> {
+  const videoPath = getSafeVideoPath(id);
+  if (videoPath && fs.existsSync(videoPath)) {
+    try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
+  }
+  const thumbPath = path.join(VIDEOS_DIR, "thumbs", `${id}.jpg`);
+  if (fs.existsSync(thumbPath)) {
+    try { fs.unlinkSync(thumbPath); } catch { /* ignore */ }
+  }
+  try {
+    await prisma.video.delete({ where: { id } });
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 export async function listVideosByUser(userId: string, isAdmin: boolean) {
   const where = isAdmin ? { status: VideoStatus.completed } : { userId, status: VideoStatus.completed };
   const videos = await prisma.video.findMany({

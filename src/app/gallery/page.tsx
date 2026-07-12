@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import ImageStatsPanel from "@/components/ImageStatsPanel";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import VideoLibrary from "@/components/VideoLibrary";
 
 interface ImageRecord {
   id: string;
@@ -42,6 +43,7 @@ export default function GalleryPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [downloadFormat, setDownloadFormat] = useState<"webp" | "jpg">("webp");
+  const [mediaTab, setMediaTab] = useState<"image" | "video">("image");
 
   // multi-select / bulk delete
   const [selectMode, setSelectMode] = useState(false);
@@ -282,7 +284,27 @@ export default function GalleryPage() {
     <AppShell>
       <main className="max-w-5xl mx-auto px-4 py-8">
         <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          {isAdmin ? (
+          <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-900/60 p-1">
+            <button
+              type="button"
+              onClick={() => setMediaTab("image")}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors cursor-pointer ${
+                mediaTab === "image" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Ảnh
+            </button>
+            <button
+              type="button"
+              onClick={() => setMediaTab("video")}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors cursor-pointer ${
+                mediaTab === "video" ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Video
+            </button>
+          </div>
+          {isAdmin && mediaTab === "image" ? (
             <div className="inline-flex rounded-xl border border-zinc-800 bg-zinc-900/60 p-1">
               <button
                 type="button"
@@ -306,6 +328,10 @@ export default function GalleryPage() {
           ) : null}
         </div>
 
+        {mediaTab === "video" ? (
+          <VideoLibrary />
+        ) : (
+        <>
         {error && (
           <div className="mb-4 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">
             {error}
@@ -581,6 +607,8 @@ export default function GalleryPage() {
           onCancel={() => setConfirmState({ type: "idle" })}
           onConfirm={handleConfirm}
         />
+        </>
+        )}
       </main>
     </AppShell>
   );

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import { Readable } from "node:stream";
 import { requireUser } from "@/lib/auth";
-import { getVideoFilePath, getVideoById } from "@/lib/video";
+import { getVideoFilePath, getVideoById, deleteVideo } from "@/lib/video";
 
 export async function GET(
   req: NextRequest,
@@ -87,4 +87,29 @@ export async function GET(
       "Cache-Control": "private, max-age=31536000, immutable",
     },
   });
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await requireUser();
+  if (!user) {
+    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const video = await getVideoById(id);
+  if (!video) {
+    return NextResponse.json({ error: "Video không tồn tại" }, { status: 404 });
+  }
+  if (user.role !== "admin" && video.userId !== user.id) {
+    return NextResponse.json({ error: "Không có quyền" }, { status: 403 });
+  }
+
+  if (!(await deleteVideo(id))) {
+    return NextResponse.json({ error: "Video không tồn tại" }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
 }

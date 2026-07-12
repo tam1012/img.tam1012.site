@@ -124,8 +124,6 @@ export default function VideoPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<VideoItem | null>(null);
   const [error, setError] = useState("");
-  const [videos, setVideos] = useState<VideoItem[]>([]);
-  const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
 
   const isAdmin = role === "admin";
   const roleModelOptions = useMemo(
@@ -161,14 +159,6 @@ export default function VideoPage() {
     }
   }, [durationOptions, duration]);
 
-  const fetchVideos = useCallback(async () => {
-    const res = await fetch("/api/video/list");
-    if (res.ok) {
-      const data = await res.json();
-      setVideos(data.videos || []);
-    }
-  }, []);
-
   const fetchAccounts = useCallback(async () => {
     const res = await fetch("/api/video/accounts");
     if (res.ok) {
@@ -185,9 +175,8 @@ export default function VideoPage() {
     if (!data?.user) return;
     setRole(data.user.role);
     if (data.wallet) setWallet(data.wallet);
-    await fetchVideos();
     if (data.user.role === "admin") await fetchAccounts();
-  }, [fetchAccounts, fetchVideos]);
+  }, [fetchAccounts]);
 
   useEffect(() => {
     void fetchMe();
@@ -420,61 +409,6 @@ export default function VideoPage() {
                 <button onClick={() => handleDownload(result.url, `video-${result.id}.mp4`)} className="rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 cursor-pointer">
                   Tải về
                 </button>
-              </div>
-            </div>
-          )}
-
-          {videos.length > 0 && (
-            <div className="pt-8">
-              <h2 className="mb-3 text-sm font-medium text-zinc-400">Video đã tạo</h2>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {videos.map((video) => (
-                  <div key={video.id} className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
-                    {playingVideoId === video.id ? (
-                      <video src={video.url} controls autoPlay className="w-full" />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setPlayingVideoId(video.id)}
-                        aria-label={`Phát ${modelTitle(video.model)}`}
-                        className="group relative flex aspect-video w-full items-center justify-center bg-zinc-800 cursor-pointer"
-                      >
-                        {video.thumbnail_url && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={video.thumbnail_url}
-                            alt=""
-                            className="absolute inset-0 h-full w-full object-cover"
-                            onError={(event) => { (event.target as HTMLImageElement).style.display = "none"; }}
-                          />
-                        )}
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/10">
-                          <svg className="h-12 w-12 text-white/70 drop-shadow transition-colors group-hover:text-white/90" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M8 5v14l11-7z" />
-                          </svg>
-                        </div>
-                      </button>
-                    )}
-                    <div className="flex items-start justify-between gap-2 px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="line-clamp-2 text-xs text-zinc-300">{video.prompt || "(không có mô tả)"}</p>
-                        <p className="mt-1 text-[10px] text-zinc-600">
-                          {modelTitle(video.model)} · {video.resolution || "mặc định"} · {video.aspect_ratio} · {video.duration_seconds}s · {video.mode === "image" ? "từ ảnh" : "từ mô tả"}
-                        </p>
-                      </div>
-                      <button
-                        onClick={(event) => { event.stopPropagation(); void handleDownload(video.url, `video-${video.id}.mp4`); }}
-                        className="shrink-0 p-1.5 text-zinc-500 transition-colors hover:text-zinc-300 cursor-pointer"
-                        title="Tải về"
-                        aria-label="Tải video"
-                      >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0-4-4m4 4 4-4M4 18h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           )}
