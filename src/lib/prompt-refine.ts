@@ -1,9 +1,12 @@
 import OpenAI from "openai";
 
 const DEFAULT_MODEL = "gemini-3-flash-agent";
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 25_000;
+const MAX_TIMEOUT_MS = 30_000;
 const MAX_INPUT_CHARS = 4_000;
 const MAX_OUTPUT_CHARS = 4_000;
+const TIMEOUT_ERROR_MESSAGE =
+  "Hết thời gian chờ khi viết lại prompt. Prompt dài có thể cần thêm chút thời gian, anh bấm lại giúp em.";
 
 interface RefineContext {
   aspectRatio?: string;
@@ -18,9 +21,30 @@ export function promptRefineConfig(env: NodeJS.ProcessEnv = process.env) {
     apiKey: env.PROMPT_REFINE_API_KEY?.trim() || "",
     model: env.PROMPT_REFINE_MODEL?.trim() || DEFAULT_MODEL,
     timeoutMs: Number.isFinite(parsedTimeout) && parsedTimeout > 0
-      ? Math.min(parsedTimeout, 30_000)
+      ? Math.min(parsedTimeout, MAX_TIMEOUT_MS)
       : DEFAULT_TIMEOUT_MS,
   };
+}
+
+export function mapPromptRefineError(error: unknown): Error {
+  if (!(error instanceof Error)) {
+    return new Error("Không thể cải thiện prompt lúc này");
+  }
+
+  const name = error.name.toLowerCase();
+  const message = error.message.toLowerCase();
+  const isAbort =
+    name === "aborterror" ||
+    message.includes("aborted") ||
+    message.includes("abort") ||
+    message.includes("timed out") ||
+    message.includes("timeout");
+
+  if (isAbort) {
+    return new Error(TIMEOUT_ERROR_MESSAGE);
+  }
+
+  return error;
 }
 
 export function buildPromptRefineMessages(prompt: string, context: RefineContext = {}) {
@@ -85,6 +109,8 @@ export async function refinePrompt(prompt: string, context: RefineContext = {}):
       max_tokens: 1200,
     }, { signal: controller.signal });
     return cleanRefinedPrompt(response.choices[0]?.message?.content || "");
+  } catch (error: unknown) {
+    throw mapPromptRefineError(error);
   } finally {
     clearTimeout(timeout);
   }

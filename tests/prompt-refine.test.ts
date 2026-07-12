@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPromptRefineMessages,
   cleanRefinedPrompt,
+  mapPromptRefineError,
   promptRefineConfig,
 } from "@/lib/prompt-refine";
 
@@ -30,6 +31,25 @@ describe("prompt refine core", () => {
 
   it("dùng gemini-3-flash-agent làm model mặc định", () => {
     expect(promptRefineConfig({} as NodeJS.ProcessEnv).model).toBe("gemini-3-flash-agent");
+  });
+
+  it("timeout mặc định 25s và trần 30s", () => {
+    expect(promptRefineConfig({} as NodeJS.ProcessEnv).timeoutMs).toBe(25_000);
+    expect(promptRefineConfig({ PROMPT_REFINE_TIMEOUT_MS: "45000" } as NodeJS.ProcessEnv).timeoutMs)
+      .toBe(30_000);
+  });
+
+  it("đổi lỗi abort/timeout thành thông báo tiếng Việt", () => {
+    const aborted = mapPromptRefineError(new Error("Request was aborted"));
+    expect(aborted.message).toContain("Hết thời gian chờ khi viết lại prompt");
+    expect(aborted.message).not.toContain("Request was aborted");
+
+    const named = new Error("The operation was aborted");
+    named.name = "AbortError";
+    expect(mapPromptRefineError(named).message).toContain("Hết thời gian chờ");
+
+    const other = mapPromptRefineError(new Error("Model upstream unavailable"));
+    expect(other.message).toBe("Model upstream unavailable");
   });
 
   it("thêm hướng dẫn riêng cho edit và video", () => {

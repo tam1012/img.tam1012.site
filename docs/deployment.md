@@ -38,7 +38,7 @@ DATA_DIR=/data
   PROMPT_REFINE_BASE_URL=https://your-cpa.example/v1
   PROMPT_REFINE_API_KEY=server-only
   PROMPT_REFINE_MODEL=gemini-3-flash-agent
-  PROMPT_REFINE_TIMEOUT_MS=10000
+  PROMPT_REFINE_TIMEOUT_MS=25000
 ```
 
 Ghi chú:

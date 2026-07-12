@@ -19,7 +19,8 @@
 - Giữ nguyên ngôn ngữ gốc; không tự dịch Việt/Anh/Trung hay ngôn ngữ khác.
 - Context riêng: `generate`, `edit` (giữ phần không đổi), `video` (motion/camera/continuity khi phù hợp).
 - API `POST /api/prompt-refine` yêu cầu session, rate limit 10 lần/phút/user; không charge, không ghi ledger, lỗi không đổi prompt.
-- Env: `PROMPT_REFINE_BASE_URL`, `PROMPT_REFINE_API_KEY`, `PROMPT_REFINE_MODEL`, `PROMPT_REFINE_TIMEOUT_MS`.
+- Env: `PROMPT_REFINE_BASE_URL`, `PROMPT_REFINE_API_KEY`, `PROMPT_REFINE_MODEL`, `PROMPT_REFINE_TIMEOUT_MS` (mặc định 25s, trần 30s).
+- Timeout/abort trả message tiếng Việt; lỗi không đổi prompt hiện tại.
 
 ## Grok/xAI direct routing
 
