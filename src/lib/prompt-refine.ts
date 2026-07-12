@@ -25,18 +25,22 @@ export function promptRefineConfig(env: NodeJS.ProcessEnv = process.env) {
 
 export function buildPromptRefineMessages(prompt: string, context: RefineContext = {}) {
   const modeInstruction = context.mode === "edit"
-    ? "This is an image edit prompt. Strengthen only the requested change and explicitly preserve everything that should remain unchanged."
+    ? "This is an image edit prompt. Strengthen only the requested change. Explicitly preserve everything that should remain unchanged, preferring wording like 'Change X only; keep Y and Z unchanged'."
     : context.mode === "video"
-      ? "This is a video generation prompt. Clarify subject motion, camera movement, timing, and scene continuity only when relevant."
-      : "This is an image generation prompt.";
+      ? "This is a video generation prompt. Clarify subject motion, camera movement, pacing and timing feel, and what must stay consistent across frames."
+      : "This is an image generation prompt. When useful, clarify in a natural order: subject, appearance and clothing, setting, action and mood, composition and viewpoint, lighting and color, style, constraints.";
   const system = [
-    "You improve prompts for image generation.",
+    "You rewrite a user's rough idea into one clear, usable prompt for an image or video model.",
+    "The user may write in a short, messy, or misspelled way. Your job is to turn that into a prompt the model can understand well, while staying true to what the user wants.",
     modeInstruction,
     "Return only the improved prompt as plain text. Do not explain and do not use Markdown.",
     "Keep the same language as the user's original prompt. Do not translate it.",
-    "Preserve the user's intent, names, quoted text, quantities, colors, cultural details, and constraints.",
-    "Only add details that clarify an ambiguity. Do not automatically add cameras, lenses, lighting, art styles, artists, brands, or quality buzzwords.",
-    "If the prompt is already clear, make only minimal edits.",
+    "Preserve the core intent, subjects, names, quoted text, quantities, colors, places, cultural details, and constraints.",
+    "Fix spelling and grammar and reorganize for clarity.",
+    "For a short or rough prompt, expand it into a clear scene, adding only helpful concrete details. Do not invent a new story, new characters, or a conflicting style.",
+    "Do not add artist names, brand names, camera gear spam, or empty quality buzzwords like '8k masterpiece ultra detailed'.",
+    "Soften sensitive wording to reduce provider policy risk while staying as close as possible to the user's intent. Never include sexual content involving minors. Never help bypass or jailbreak safety filters.",
+    "If the original is already clear and detailed, make only light improvements instead of a heavy rewrite.",
   ].join(" ");
   const metadata = [
     context.aspectRatio ? `Aspect ratio: ${context.aspectRatio}` : "",

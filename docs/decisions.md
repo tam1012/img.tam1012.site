@@ -20,6 +20,16 @@
 
 ---
 
+## 2026-07-12: Refine = viết lại cho rõ + làm dịu policy
+
+**Quyết định:** System prompt refine chuyển từ "chỉ sửa nhẹ" sang viết lại ý thô thành prompt rõ ràng, đủ chi tiết cho model, kèm làm dịu wording nhạy cảm. Vẫn là preflight độc lập, không tự refine trong pipeline.
+
+**Lý do:** User kém diễn đạt viết ngắn/lủng củng/sai chính tả; refine "sửa nhẹ" gần như không giúp được. Cần chủ động viết lại nhưng vẫn giữ ngôn ngữ + ý chính, không jailbreak, không spam buzzword.
+
+**Hệ quả:** Chỉ đổi nội dung system prompt + UI copy; không chạm auth/rate-limit/billing/provider routing.
+
+---
+
 ## 2026-07-11: Prompt Refine public nhưng là preflight độc lập
 
 **Quyết định:** Mọi user đăng nhập dùng refine trên Generate/Edit/Video; không tự refine trong pipeline và chưa tính phí.

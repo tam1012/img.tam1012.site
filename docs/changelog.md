@@ -1,5 +1,12 @@
 # Changelog — IMG Studio
 
+## 2026-07-12 — Prompt Refine: viết lại cho rõ + wording an toàn policy
+
+- Đổi mission refine từ "sửa nhẹ" sang viết lại ý thô/ngắn/sai chính tả thành prompt rõ, đủ dùng cho model; prompt đã tốt vẫn chỉ chỉnh nhẹ.
+- Thêm hướng dẫn làm dịu wording nhạy cảm (giữ sát ý user), cấm nội dung với trẻ vị thành niên, cấm jailbreak, cấm spam artist/brand/quality buzzword.
+- UI đổi nút `Gợi ý cải thiện` → `Viết lại prompt rõ hơn`, helper nói rõ cứ viết ngắn/lủng củng cũng được.
+- Không đụng auth/rate-limit/billing, không nhúng refine vào pipeline generate/edit/video.
+
 ## 2026-07-11 — Public Prompt Refine + direct xAI OAuth pool
 
 - Mở `Gợi ý cải thiện` cho mọi user đã đăng nhập trên Generate, Edit và Video.

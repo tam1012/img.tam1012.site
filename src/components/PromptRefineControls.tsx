@@ -68,7 +68,7 @@ export default function PromptRefineControls({
           disabled={disabled || isRefining || !prompt.trim()}
           className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
         >
-          {isRefining ? "Đang hoàn thiện mô tả…" : "Gợi ý cải thiện"}
+          {isRefining ? "Đang viết lại…" : "Viết lại prompt rõ hơn"}
         </button>
         {originalPrompt !== null && (
           <button
@@ -80,7 +80,7 @@ export default function PromptRefineControls({
             Hoàn tác
           </button>
         )}
-        <span className="text-[11px] text-zinc-600">Giữ nguyên ngôn ngữ và ý chính của prompt.</span>
+        <span className="text-[11px] text-zinc-600">Cứ viết ngắn hay lủng củng cũng được, hệ thống sẽ viết lại cho rõ, giữ nguyên ngôn ngữ và ý chính.</span>
       </div>
       {error && (
         <div className="rounded-lg border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
