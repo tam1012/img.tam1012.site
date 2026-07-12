@@ -29,7 +29,6 @@ services:
       - ./secrets/vertex-service-account.json:/run/secrets/vertex-service-account.json:ro
       - ./secrets/vertex-video-1.json:/run/secrets/vertex-video-1.json:ro
       - ./secrets/vertex-video-2.json:/run/secrets/vertex-video-2.json:ro
-      - ./secrets/xai-auth.json:/run/secrets/xai-auth.json:ro
       - ./secrets/xai-auths:/run/secrets/xai-auths:ro
     env_file:
       - .env
