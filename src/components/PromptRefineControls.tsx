@@ -80,7 +80,7 @@ export default function PromptRefineControls({
             Hoàn tác
           </button>
         )}
-        <span className="text-[11px] text-zinc-600">Cứ viết ngắn hay lủng củng cũng được, hệ thống sẽ viết lại cho rõ, giữ nguyên ngôn ngữ và ý chính.</span>
+        <span className="text-[11px] text-zinc-600">Hỗ trợ tinh chỉnh prompt rõ nghĩa, giữ nguyên ý chính.</span>
       </div>
       {error && (
         <div className="rounded-lg border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
