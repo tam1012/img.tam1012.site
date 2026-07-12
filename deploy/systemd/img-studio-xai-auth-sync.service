@@ -1,0 +1,16 @@
+[Unit]
+Description=Sync xAI OAuth accounts from CPA to IMG Studio
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=XAI_AUTH_SOURCE_DIR=/home/ubuntu/cliproxyapi/auths
+Environment=XAI_AUTH_TARGET_DIR=/home/ubuntu/img-studio/secrets/xai-auths
+Environment=XAI_AUTH_TARGET_UID=1001
+Environment=XAI_AUTH_TARGET_GID=1001
+ExecStart=/usr/bin/python3 /home/ubuntu/img-studio/scripts/sync-xai-auth-pool.py
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

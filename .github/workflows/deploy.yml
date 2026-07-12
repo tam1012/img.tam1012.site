@@ -1,0 +1,104 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 30m
+          script: |
+            set -e
+            cd ~/img-studio
+
+            # Repo private: VPS phải fetch bằng SSH deploy key (git@github.com),
+            # không dùng HTTPS anonymous — sẽ fail "could not read Username".
+            if [ ! -d ".git" ]; then
+              cd ~
+              git clone git@github.com:tam1012/img.tam1012.site.git img-studio
+              cd ~/img-studio
+            fi
+
+            # Ép remote SSH nếu lỡ còn HTTPS
+            git remote set-url origin git@github.com:tam1012/img.tam1012.site.git
+
+            # Fetch + sửa ref lock hỏng (unable to update local ref)
+            git fetch origin main || {
+              rm -f .git/refs/remotes/origin/main
+              git fetch origin main
+            }
+            git update-ref refs/remotes/origin/main "$(git rev-parse FETCH_HEAD)"
+            git reset --hard origin/main
+
+            # Bỏ override mount từng file xAI của rollout cũ; pool mới mount cả thư mục sync động.
+            if [ -f docker-compose.override.yml ] && grep -q '/run/secrets/xai-auths/xai-' docker-compose.override.yml; then
+              rm -f docker-compose.override.yml
+            fi
+
+            sudo install -o root -g root -m 644 \
+              deploy/systemd/img-studio-xai-auth-sync.service \
+              /etc/systemd/system/img-studio-xai-auth-sync.service
+            sudo install -o root -g root -m 644 \
+              deploy/systemd/img-studio-xai-auth-sync.timer \
+              /etc/systemd/system/img-studio-xai-auth-sync.timer
+            sudo systemctl daemon-reload
+            sudo systemctl enable --now img-studio-xai-auth-sync.timer
+            sudo systemctl start img-studio-xai-auth-sync.service
+
+            if [ -d "chatgpt-web-bridge" ] && [ -d "/opt/chatgpt-web-bridge" ]; then
+              sudo install -o ubuntu -g ubuntu -m 644 chatgpt-web-bridge/server.py /opt/chatgpt-web-bridge/server.py
+              sudo install -o ubuntu -g ubuntu -m 644 chatgpt-web-bridge/profile_manager.py /opt/chatgpt-web-bridge/profile_manager.py
+              sudo install -o ubuntu -g ubuntu -m 644 chatgpt-web-bridge/requirements.txt /opt/chatgpt-web-bridge/requirements.txt
+              sudo install -o ubuntu -g ubuntu -m 755 chatgpt-web-bridge/setup_profile.sh /opt/chatgpt-web-bridge/setup_profile.sh
+              sudo install -o ubuntu -g ubuntu -m 755 chatgpt-web-bridge/verify_cli.sh /opt/chatgpt-web-bridge/verify_cli.sh
+              sudo systemctl restart chatgpt-web-bridge || true
+            fi
+
+            mkdir -p backups
+            STAMP=$(date +%Y%m%d-%H%M%S)
+            if docker container inspect img-studio >/dev/null 2>&1; then
+              MEDIA_BACKUP="./backups/img-data-before-deploy-$STAMP"
+              docker cp img-studio:/data "$MEDIA_BACKUP"
+              test -d "$MEDIA_BACKUP"
+              find "$MEDIA_BACKUP" -mindepth 1 -print -quit | grep -q .
+            fi
+
+            # Giữ đúng 3 snapshot mới nhất theo timestamp trong tên.
+            # Không sort theo mtime vì docker cp có thể giữ mtime cũ của /data.
+            find ./backups -maxdepth 1 -mindepth 1 -type d \
+              -name 'img-data-before-deploy-*' -printf '%f\n' \
+              | grep -E '^img-data-before-deploy-[0-9]{8}-[0-9]{6}$' \
+              | sort -r \
+              | tail -n +4 \
+              | while IFS= read -r snapshot; do
+                  rm -rf -- "./backups/$snapshot"
+                done
+
+            # DB dump (custom format). Fail = abort deploy (set -e).
+            # Lần đầu chưa có img-studio-db: skip. Khi DB đã có: dump bắt buộc thành công.
+            if docker container inspect img-studio-db >/dev/null 2>&1; then
+              docker exec img-studio-db pg_dump -U imgstudio -d imgstudio -Fc \
+                -f /tmp/img-postgres-$STAMP.dump
+              docker cp img-studio-db:/tmp/img-postgres-$STAMP.dump \
+                ./backups/img-postgres-$STAMP.dump
+              docker exec img-studio-db rm -f /tmp/img-postgres-$STAMP.dump
+            fi
+            # Chỉ giữ 3 dump DB mới nhất (độc lập retention backup /data)
+            ls -1dt ./backups/img-postgres-*.dump 2>/dev/null | tail -n +4 | xargs -r rm -f
+
+            docker compose build --no-cache app
+            docker compose up -d --remove-orphans
+
+            # Dọn build cache và image cũ sau mỗi lần build (tránh đầy ổ đĩa)
+            docker builder prune -f
+            docker image prune -f
+
+            echo "Deploy complete"

@@ -1,0 +1,47 @@
+server:
+  host: "127.0.0.1"
+  port: 8456
+
+runtime:
+  display: ":1"
+  # Keep 1 for stability with chrome-use shared Chromium multi-window.
+  max_global_concurrency: 1
+  acquire_timeout_seconds: 30
+  generation_timeout_seconds: 600
+  cooldown_seconds_after_success: 20
+  cooldown_seconds_after_error: 120
+  max_prompt_chars: 4000
+  min_output_bytes: 1024
+
+paths:
+  profiles_dir: "/var/lib/chatgpt-web-bridge/profiles"
+  output_dir: "/var/lib/chatgpt-web-bridge/output"
+  screenshots_dir: "/var/lib/chatgpt-web-bridge/screenshots"
+
+image_gen:
+  binary: "chatgpt-imagegen"
+  default_format: "png"
+  allowed_sizes:
+    - "1024x1024"
+    - "1536x1024"
+    - "1024x1536"
+
+# Practical setup that works with chrome-use:
+# one shared Chromium user-data-dir, multiple profiles/windows open.
+# True multi-browser isolation is currently unreliable with this tool stack.
+profiles:
+  - name: "account_01"
+    label: "babyinmyl0v3"
+    user_data_dir: "/home/ubuntu/.config/chromium"
+    chrome_profile: "Default"
+    enabled: true
+  - name: "account_02"
+    label: "vantamh"
+    user_data_dir: "/home/ubuntu/.config/chromium"
+    chrome_profile: "Profile 1"
+    enabled: true
+  - name: "account_03"
+    label: "Person 1"
+    user_data_dir: "/home/ubuntu/.config/chromium"
+    chrome_profile: 'Profile\ 1'
+    enabled: true

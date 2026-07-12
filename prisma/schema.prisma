@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  user
+}
+
+enum UserStatus {
+  active
+  blocked
+}
+
+enum LedgerType {
+  topup_manual
+  charge_image
+  refund_image
+  charge_video
+  refund_video
+  adjust_manual
+  topup_payos
+}
+
+enum PayosStatus {
+  pending
+  paid
+  cancelled
+}
+
+enum ImageStatus {
+  processing
+  completed
+  failed
+  deleted
+}
+
+/// DEPRECATED: legacy background image jobs; kept for deployed schema compatibility. Do not use in app code; no drop migration in this change.
+enum ImageJobStatus {
+  queued
+  running
+  completed
+  failed
+}
+
+enum ImageVisibility {
+  private
+  public
+}
+
+/// Sự kiện tạo/sửa ảnh thành công — bất biến cho stats; hard-delete Image không xóa dòng này.
+enum ImageUsageKind {
+  generate
+  edit
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String?    @unique
+  phone        String?    @unique
+  passwordHash String
+  displayName  String?
+  role         UserRole   @default(user)
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  wallet      Wallet?
+  ledger      WalletLedger[]
+  images      Image[]
+  imageUsages ImageUsage[]
+  imageJobs   ImageJob[]
+  videos      Video[]
+  payosOrders PayosOrder[]
+}
+
+model Wallet {
+  userId     String   @id
+  balanceVnd Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("Wallet")
+}
+
+model WalletLedger {
+  id              String     @id @default(uuid())
+  userId          String
+  type            LedgerType
+  amountVnd       Int
+  balanceAfterVnd Int
+  relatedImageId  String?
+  relatedVideoId  String?
+  adminId         String?
+  note            String?
+  idempotencyKey  String?    @unique
+  createdAt       DateTime   @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  image Image? @relation(fields: [relatedImageId], references: [id], onDelete: SetNull)
+  video Video? @relation(fields: [relatedVideoId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}
+
+model Provider {
+  id        String   @id @default(uuid())
+  name      String
+  apiType   String
+  baseUrl   String?
+  apiKey    String?
+  model     String
+  isDefault Boolean  @default(false)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  images Image[]
+}
+
+model Image {
+  id              String          @id @default(uuid())
+  userId          String
+  prompt          String
+  editPrompt      String?
+  providerId      String?
+  providerName    String
+  model           String
+  aspectRatio     String?
+  resolution      String?
+  width           Int?
+  height          Int?
+  quality         String?
+  costVnd         Int             @default(100)
+  filename        String?
+  mimeType        String?
+  originalImageId String?
+  idempotencyKey  String?         @unique
+  batchId         String?
+  visibility      ImageVisibility @default(private)
+  status          ImageStatus     @default(processing)
+  errorMessage    String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
+  deletedBy       String?
+  /// DEPRECATED: legacy background image jobs; kept for deployed schema compatibility. Do not use in app code; no drop migration in this change.
+  jobId           String?
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// DEPRECATED: legacy ImageJob relation; app uses synchronous generate.
+  job      ImageJob?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  provider Provider?      @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  ledger   WalletLedger[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([batchId])
+  @@index([jobId])
+}
+
+/// DEPRECATED: legacy background image jobs; kept for deployed schema compatibility. Do not use in app code; no drop migration in this change.
+model ImageJob {
+  id           String         @id @default(uuid())
+  userId       String
+  status       ImageJobStatus @default(queued)
+  payload      Json
+  errorMessage String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  images Image[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Bản ghi sản lượng ảnh (stats). Không FK sang Image để hard-delete ảnh không kéo theo usage.
+model ImageUsage {
+  id           String         @id @default(uuid())
+  userId       String
+  /// Id ảnh gốc lúc tạo; chỉ để idempotent/backfill, không cascade khi xóa Image.
+  imageId      String?        @unique
+  kind         ImageUsageKind
+  model        String
+  providerName String
+  costVnd      Int            @default(0)
+  createdAt    DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([model, createdAt])
+}
+
+model PayosOrder {
+  orderCode     Int         @id @default(autoincrement())
+  userId        String
+  amountVnd     Int
+  status        PayosStatus @default(pending)
+  paymentLinkId String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+enum VideoStatus {
+  processing
+  completed
+  failed
+}
+
+model Video {
+  id              String      @id @default(uuid())
+  userId          String
+  prompt          String
+  model           String
+  aspectRatio     String?
+  resolution      String?
+  durationSeconds Int?
+  mode            String?
+  account         String?
+  costVnd         Int         @default(5000)
+  filename        String?
+  status          VideoStatus @default(processing)
+  errorMessage    String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger WalletLedger[]
+
+  @@index([userId, createdAt])
+}
+
+model SiteSetting {
+  key       String   @id
+  value     String   @default("")
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}

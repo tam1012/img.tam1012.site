@@ -1,0 +1,28 @@
+node_modules/
+.next/
+out/
+data/
+secrets/
+backups/
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets / credentials (never commit)
+docs/payos.txt
+**/*service-account*.json
+**/credentials*.json
+**/*.pem
+**/*.key
+
+# Local-only notes / dumps that may contain secrets or large payloads
+docs/code_image-to-video.txt
+docs/code_text-to-video.txt
+docs/multi.txt
+docs/rate-limits.txt
+docs/video-public-paid.md
+docs/prompt-claude-code-grok-imagine.md
+docs/plan_Build ChatGPT Web Image Bridge for img-studio_DeepSeek.txt
+.claude/

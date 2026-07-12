@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: img-studio-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: imgstudio
+      POSTGRES_USER: imgstudio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - img-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U imgstudio -d imgstudio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: img-studio
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3456:3456"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - img-data:/data
+      - ./secrets/vertex-service-account.json:/run/secrets/vertex-service-account.json:ro
+      - ./secrets/vertex-video-1.json:/run/secrets/vertex-video-1.json:ro
+      - ./secrets/vertex-video-2.json:/run/secrets/vertex-video-2.json:ro
+      - ./secrets/xai-auth.json:/run/secrets/xai-auth.json:ro
+      - ./secrets/xai-auths:/run/secrets/xai-auths:ro
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+      - GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/vertex-service-account.json
+      - DATABASE_URL=postgresql://imgstudio:${POSTGRES_PASSWORD}@db:5432/imgstudio?schema=public
+      - CHATGPT_BRIDGE_BASE_URL=http://host.docker.internal:8456
+      - XAI_AUTH_DIR=/run/secrets/xai-auths
+
+volumes:
+  img-data:
+  img-postgres:
