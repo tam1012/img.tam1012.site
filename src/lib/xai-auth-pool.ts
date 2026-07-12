@@ -5,6 +5,8 @@ export const XAI_BASE_URL = "https://api.x.ai/v1";
 const DEFAULT_AUTH_DIR = "/run/secrets/xai-auths";
 const LEGACY_AUTH_FILE = "/run/secrets/xai-auth.json";
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
+// 403 permission-denied thường kéo dài (xAI cấm quyền cả account), né lâu hơn để khỏi phí lượt.
+const PERMISSION_COOLDOWN_MS = 60 * 60 * 1000;
 
 export interface XaiAccount {
   id: string;
@@ -94,12 +96,14 @@ export async function runWithXaiAccount<T>(
           return { value: await operation(account), account };
         } catch (reloadError: unknown) {
           lastError = reloadError;
-          if (xaiErrorStatus(reloadError) !== 401 && !isXaiQuotaError(reloadError)) throw reloadError;
+          if (xaiErrorStatus(reloadError) !== 401 && !isXaiQuotaError(reloadError) && !isXaiPermissionError(reloadError)) throw reloadError;
         }
-      } else if (!isXaiQuotaError(error)) {
+      } else if (!isXaiQuotaError(error) && !isXaiPermissionError(error)) {
         throw error;
       }
-      pool.markCooldown(account);
+      // 403 permission-denied: account bị xAI cấm quyền endpoint — cho cooldown dài để né,
+      // xoay sang account khác thay vì fail ngay (pool có thể còn account tốt).
+      pool.markCooldown(account, isXaiPermissionError(error) ? PERMISSION_COOLDOWN_MS : undefined);
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Các tài khoản OAuth xAI đều không khả dụng");
@@ -118,4 +122,10 @@ export function isXaiQuotaError(error: unknown): boolean {
   if (status === 429) return true;
   const message = error instanceof Error ? error.message : String(error);
   return /quota|rate.?limit|too many requests/i.test(message);
+}
+
+export function isXaiPermissionError(error: unknown): boolean {
+  if (xaiErrorStatus(error) !== 403) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return /permission.?denied|access to the image endpoint is denied/i.test(message);
 }

@@ -67,4 +67,20 @@ describe("XaiAuthPool", () => {
     expect(result.account.id).toBe("xai-02");
     expect(attempted).toEqual(["xai-01", "xai-02"]);
   });
+
+  it("chuyển sang account tiếp theo khi account đầu bị 403 permission-denied", async () => {
+    const pool = new XaiAuthPool(authDir());
+    const attempted: string[] = [];
+    const result = await runWithXaiAccount(pool, async (account) => {
+      attempted.push(account.id);
+      if (account.id === "xai-01") {
+        throw Object.assign(new Error('403 "Access to the image endpoint is denied"'), { status: 403, code: "permission-denied" });
+      }
+      return "ok";
+    });
+
+    expect(result.value).toBe("ok");
+    expect(result.account.id).toBe("xai-02");
+    expect(attempted).toEqual(["xai-01", "xai-02"]);
+  });
 });
