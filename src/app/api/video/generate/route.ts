@@ -19,6 +19,7 @@ import {
 } from "@/lib/video";
 import { getVideoPriceVnd } from "@/lib/pricing";
 import { debitForVideo, refundForVideo, INSUFFICIENT_BALANCE } from "@/lib/wallet";
+import { isGenerateRateLimited } from "@/lib/rate-limit";
 
 export const maxDuration = 600;
 
@@ -30,9 +31,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }
 
+  if (isGenerateRateLimited(user.id)) {
+    return NextResponse.json({ error: "Bạn thao tác quá nhanh, vui lòng thử lại sau" }, { status: 429 });
+  }
+
   let videoId: string | null = null;
   let charged = false;
   const videoPrice = getVideoPriceVnd();
+
+  if (user.role !== "admin" && user.balanceVnd < videoPrice) {
+    return NextResponse.json({ error: "Số dư không đủ, vui lòng nạp thêm" }, { status: 402 });
+  }
 
   try {
     const formData = await req.formData();

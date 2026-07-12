@@ -6,6 +6,7 @@ import { editImage, computePixelSize } from "@/lib/providers";
 import { getImagePriceVnd } from "@/lib/pricing";
 import { debitForImage, refundForImage, INSUFFICIENT_BALANCE } from "@/lib/wallet";
 import { saveImageFile } from "@/lib/storage";
+import { isGenerateRateLimited } from "@/lib/rate-limit";
 
 const MAX_EDIT_UPLOAD_BYTES = 9.5 * 1024 * 1024;
 const MAX_EDIT_UPLOAD_LABEL = "9.5MB";
@@ -30,6 +31,10 @@ export async function POST(req: NextRequest) {
   const user = await requireUser();
   if (!user) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
+  }
+
+  if (isGenerateRateLimited(user.id)) {
+    return NextResponse.json({ error: "Bạn thao tác quá nhanh, vui lòng thử lại sau" }, { status: 429 });
   }
 
   let imageId: string | null = null;
@@ -118,6 +123,10 @@ export async function POST(req: NextRequest) {
         mimeType: file.type || "image/png",
       }))
     );
+    if (user.role !== "admin" && user.balanceVnd < price) {
+      return NextResponse.json({ error: "Số dư không đủ, vui lòng liên hệ admin để nạp tiền" }, { status: 402 });
+    }
+
     const { width, height } = computePixelSize(aspectRatio, resolution);
     const image = await createImageRecord({
       userId: user.id,

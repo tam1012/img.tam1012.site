@@ -7,11 +7,16 @@ import { generateImage, computePixelSize } from "@/lib/providers";
 import { getImagePriceVnd } from "@/lib/pricing";
 import { debitForImage, refundForImage, debitForBatch, refundForBatch, INSUFFICIENT_BALANCE } from "@/lib/wallet";
 import { saveImageFile } from "@/lib/storage";
+import { isGenerateRateLimited } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   const user = await requireUser();
   if (!user) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
+  }
+
+  if (isGenerateRateLimited(user.id)) {
+    return NextResponse.json({ error: "Bạn thao tác quá nhanh, vui lòng thử lại sau" }, { status: 429 });
   }
 
   const price = getImagePriceVnd();
@@ -42,6 +47,9 @@ export async function POST(req: NextRequest) {
     }
     if (provider.api_type === "chatgpt_bridge" && user.role !== "admin") {
       return NextResponse.json({ error: "Provider này chỉ dành cho admin." }, { status: 403 });
+    }
+    if (user.role !== "admin" && user.balanceVnd < price * count) {
+      return NextResponse.json({ error: "Số dư không đủ, vui lòng liên hệ admin để nạp tiền" }, { status: 402 });
     }
     if (count === 1) {
       return handleSingle(user, provider, { prompt: prompt.trim(), aspect_ratio, resolution, quality, clientKey, price });

@@ -124,6 +124,26 @@ const DISPOSABLE_DOMAINS = new Set([
   "fleckens.hu",
 ]);
 
+const GENERATE_WINDOW_MS = 60 * 1000;
+const MAX_GENERATE_PER_WINDOW = 20;
+const generateStore = new Map<string, Entry>();
+
+/**
+ * Rate-limit tạo/sửa ảnh & video theo user: tối đa 20 request / phút.
+ * Chặn spam script gọi thẳng API (case doandk23 spam ~50 req/s khi balance=0).
+ * Trả về true nếu đã vượt ngưỡng và cần chặn (429).
+ */
+export function isGenerateRateLimited(userId: string): boolean {
+  const now = Date.now();
+  const entry = generateStore.get(userId);
+  if (!entry || now > entry.resetAt) {
+    generateStore.set(userId, { count: 1, resetAt: now + GENERATE_WINDOW_MS });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > MAX_GENERATE_PER_WINDOW;
+}
+
 export function isDisposableEmail(email: string): boolean {
   const normalized = email.trim().toLowerCase();
   const atIndex = normalized.lastIndexOf("@");
