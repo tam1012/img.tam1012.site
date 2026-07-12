@@ -90,6 +90,7 @@ export default function AccountMenu({ me, onLogout, compact = false }: AccountMe
               <>
                 <MenuLink href="/settings" label="Cài đặt" />
                 <MenuLink href="/admin" label="Admin" />
+                <MenuLink href="/admin/logs" label="Nhật ký request" />
               </>
             )}
           </div>

@@ -113,6 +113,7 @@ export default function MobileNav() {
                 <>
                   <SheetLink href="/settings" label="Cài đặt" />
                   <SheetLink href="/admin" label="Admin" />
+                  <SheetLink href="/admin/logs" label="Nhật ký request" />
                 </>
               )}
               <button type="button" onClick={handleLogout} className="w-full rounded-xl px-3 py-3 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 cursor-pointer">
