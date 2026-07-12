@@ -59,6 +59,7 @@ export default function EditPage() {
   const [quality, setQuality] = useState("high");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [downloadFormat, setDownloadFormat] = useState<"webp" | "jpg">("webp");
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -393,15 +394,31 @@ export default function EditPage() {
                 )}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                   <p className="text-xs text-zinc-500 px-3 py-2 border-b border-zinc-800">Kết quả</p>
-                  <img src={result.url} alt={result.prompt} className="w-full" />
+                  <a href={`/api/images/${result.id}`} target="_blank" rel="noopener noreferrer" title="Mở ảnh trong tab mới">
+                    <img src={result.url} alt={result.prompt} className="w-full cursor-zoom-in" />
+                  </a>
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-500">{result.provider_name} · {result.model}</span>
-                <a href={result.url} download={`img-edit-${result.id}.webp`}
-                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-300 transition-colors">
-                  Tải về
-                </a>
+                <div className="flex items-center gap-1">
+                  <div className="inline-flex items-center gap-0.5 rounded-md bg-zinc-800 p-0.5">
+                    <button onClick={() => setDownloadFormat("webp")}
+                      className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "webp" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+                      WebP
+                    </button>
+                    <button onClick={() => setDownloadFormat("jpg")}
+                      className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "jpg" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+                      JPG
+                    </button>
+                  </div>
+                  <a
+                    href={downloadFormat === "jpg" ? `/api/images/${result.id}?format=jpg` : result.url}
+                    download={`img-edit-${result.id}.${downloadFormat}`}
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-300 transition-colors">
+                    Tải về
+                  </a>
+                </div>
               </div>
             </div>
           )}
