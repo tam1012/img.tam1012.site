@@ -59,6 +59,23 @@ enum ImageUsageKind {
   edit
 }
 
+enum RequestLogKind {
+  generate
+  edit
+  video
+}
+
+enum RequestLogStatus {
+  processing
+  completed
+  failed
+}
+
+enum RequestDeleteMode {
+  soft
+  hard
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String?    @unique
@@ -78,6 +95,7 @@ model User {
   videos      Video[]
   payosOrders PayosOrder[]
   apiKeys     ApiKey[]
+  requestLogs RequestLog[]
 }
 
 model Wallet {
@@ -202,6 +220,38 @@ model ImageUsage {
   @@index([userId, createdAt])
   @@index([createdAt])
   @@index([model, createdAt])
+}
+
+/// Sổ nhật ký request bất biến. KHÔNG FK sang Image/Video: hard-delete media không xóa dòng này.
+model RequestLog {
+  id              String             @id @default(uuid())
+  userId          String
+  kind            RequestLogKind
+  model           String
+  providerName    String?
+  account         String?
+  status          RequestLogStatus   @default(processing)
+  costVnd         Int                @default(0)
+  aspectRatio     String?
+  resolution      String?
+  errorMessage    String?
+  batchId         String?
+  /// Id media gốc lúc tạo; chỉ để idempotent + đánh dấu xóa. Không cascade.
+  relatedImageId  String?            @unique
+  relatedVideoId  String?            @unique
+  /// Media nguồn đã bị xóa hay chưa (giữ dòng log để truy vết).
+  mediaDeletedAt  DateTime?
+  mediaDeletedBy  String?
+  mediaDeleteMode RequestDeleteMode?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@index([kind, createdAt])
+  @@index([status, createdAt])
 }
 
 model PayosOrder {

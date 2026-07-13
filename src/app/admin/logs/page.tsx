@@ -19,6 +19,9 @@ interface RequestLogRow {
   error_message: string | null;
   batch_id: string | null;
   created_at: string;
+  media_deleted_at: string | null;
+  media_deleted_by: string | null;
+  media_delete_mode: "soft" | "hard" | null;
 }
 
 interface RequestLogSummary {
@@ -73,6 +76,18 @@ function formatVnd(value: number) {
   return new Intl.NumberFormat("vi-VN").format(value) + "đ";
 }
 
+// Ngày hiện tại theo giờ VN dạng YYYY-MM-DD (dùng cho input date và nút nhanh).
+function vnToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+
+// Lùi n ngày so với hôm nay (giờ VN), trả về YYYY-MM-DD.
+function vnDaysAgo(n: number): string {
+  const now = new Date();
+  const shifted = new Date(now.getTime() - n * 24 * 60 * 60 * 1000);
+  return shifted.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+
 export default function AdminLogsPage() {
   const [data, setData] = useState<RequestLogResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,6 +96,8 @@ export default function AdminLogsPage() {
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
   const [model, setModel] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
 
   const fetchLog = useCallback(async () => {
@@ -91,6 +108,8 @@ export default function AdminLogsPage() {
       if (kind !== "all") params.set("kind", kind);
       if (status !== "all") params.set("status", status);
       if (model !== "all") params.set("model", model);
+      if (from) params.set("from", `${from}T00:00:00`);
+      if (to) params.set("to", `${to}T23:59:59.999`);
       params.set("page", String(page));
       const res = await fetch(`/api/admin/request-log?${params.toString()}`);
       const json = await res.json();
@@ -101,12 +120,12 @@ export default function AdminLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [kind, status, model, page]);
+  }, [kind, status, model, from, to, page]);
 
   useEffect(() => { fetchLog(); }, [fetchLog]);
 
   // Đổi bộ lọc thì về trang 1.
-  useEffect(() => { setPage(1); }, [kind, status, model]);
+  useEffect(() => { setPage(1); }, [kind, status, model, from, to]);
 
   const summary = data?.summary;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
@@ -138,27 +157,46 @@ export default function AdminLogsPage() {
         )}
 
         <section className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
-          <div className="flex flex-col sm:flex-row gap-3 p-4 border-b border-zinc-800">
-            <select value={kind} onChange={(e) => setKind(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
-              <option value="all">Tất cả loại</option>
-              <option value="generate">Tạo ảnh</option>
-              <option value="edit">Sửa ảnh</option>
-              <option value="video">Video</option>
-            </select>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
-              <option value="all">Tất cả trạng thái</option>
-              <option value="completed">Thành công</option>
-              <option value="failed">Thất bại</option>
-              <option value="processing">Đang chạy</option>
-              <option value="deleted">Đã xoá</option>
-            </select>
-            <select value={model} onChange={(e) => setModel(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
-              <option value="all">Tất cả model</option>
-              {data?.models.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+          <div className="flex flex-col gap-3 p-4 border-b border-zinc-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-zinc-500 mr-1">Khoảng thời gian:</span>
+              <QuickRangeButton label="Hôm nay" active={from === vnToday() && to === vnToday()}
+                onClick={() => { setFrom(vnToday()); setTo(vnToday()); }} />
+              <QuickRangeButton label="7 ngày" active={from === vnDaysAgo(6) && to === vnToday()}
+                onClick={() => { setFrom(vnDaysAgo(6)); setTo(vnToday()); }} />
+              <QuickRangeButton label="30 ngày" active={from === vnDaysAgo(29) && to === vnToday()}
+                onClick={() => { setFrom(vnDaysAgo(29)); setTo(vnToday()); }} />
+              <QuickRangeButton label="Tất cả" active={!from && !to}
+                onClick={() => { setFrom(""); setTo(""); }} />
+              <span className="mx-1 h-4 w-px bg-zinc-700" />
+              <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)}
+                className="px-2 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+              <span className="text-zinc-600 text-sm">–</span>
+              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)}
+                className="px-2 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select value={kind} onChange={(e) => setKind(e.target.value)}
+                className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                <option value="all">Tất cả loại</option>
+                <option value="generate">Tạo ảnh</option>
+                <option value="edit">Sửa ảnh</option>
+                <option value="video">Video</option>
+              </select>
+              <select value={status} onChange={(e) => setStatus(e.target.value)}
+                className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                <option value="all">Tất cả trạng thái</option>
+                <option value="completed">Thành công</option>
+                <option value="failed">Thất bại</option>
+                <option value="processing">Đang chạy</option>
+                <option value="deleted">Ảnh đã xoá</option>
+              </select>
+              <select value={model} onChange={(e) => setModel(e.target.value)}
+                className="px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+                <option value="all">Tất cả model</option>
+                {data?.models.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
           </div>
 
           {loading ? (
@@ -203,6 +241,14 @@ export default function AdminLogsPage() {
                         <span className={`text-[11px] px-1.5 py-0.5 rounded ${STATUS_CLASS[row.status]}`}>
                           {STATUS_LABEL[row.status]}
                         </span>
+                        {row.media_deleted_at && (
+                          <span
+                            title={`${row.media_deleted_by ? `Xoá bởi ${row.media_deleted_by}` : "Đã xoá"} · ${formatDate(row.media_deleted_at)}`}
+                            className="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300"
+                          >
+                            {row.media_delete_mode === "hard" ? "Ảnh đã xoá vĩnh viễn" : "Ảnh đã xoá"}
+                          </span>
+                        )}
                         {row.status === "failed" && row.error_message && (
                           <p className="text-xs text-red-400/70 mt-1 max-w-xs break-words">{row.error_message}</p>
                         )}
@@ -246,5 +292,18 @@ function SummaryCard({ label, value, tone }: { label: string; value: string; ton
       <p className="text-xs text-zinc-500">{label}</p>
       <p className={`text-lg font-semibold mt-0.5 ${valueClass}`}>{value}</p>
     </div>
+  );
+}
+
+function QuickRangeButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-2.5 py-1 rounded-lg text-xs cursor-pointer ${
+        active ? "bg-blue-600 text-white" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+      }`}
+    >
+      {label}
+    </button>
   );
 }

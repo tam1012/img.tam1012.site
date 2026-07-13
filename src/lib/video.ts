@@ -3,6 +3,7 @@ import path from "path";
 import { GoogleGenAI } from "@google/genai";
 import { VideoStatus } from "@prisma/client";
 import { prisma } from "./prisma";
+import { logRequestStart, logRequestFailed, markRequestLogVideoDeleted } from "./request-log";
 import { XAI_BASE_URL, isXaiQuotaError, runWithXaiAccount, xaiAuthPool } from "./xai-auth-pool";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
@@ -375,34 +376,58 @@ export async function createVideoRecord(data: {
   account: string;
   costVnd: number;
 }): Promise<{ id: string }> {
-  return prisma.video.create({
-    data: {
+  return prisma.$transaction(async (tx) => {
+    const video = await tx.video.create({
+      data: {
+        userId: data.userId,
+        prompt: data.prompt,
+        model: data.model,
+        aspectRatio: data.aspectRatio,
+        resolution: data.resolution,
+        durationSeconds: data.durationSeconds,
+        mode: data.mode,
+        account: data.account,
+        costVnd: data.costVnd,
+        status: "processing",
+      },
+      select: { id: true },
+    });
+    await logRequestStart(tx, {
       userId: data.userId,
-      prompt: data.prompt,
+      kind: "video",
       model: data.model,
-      aspectRatio: data.aspectRatio,
-      resolution: data.resolution,
-      durationSeconds: data.durationSeconds,
-      mode: data.mode,
       account: data.account,
       costVnd: data.costVnd,
-      status: "processing",
-    },
-    select: { id: true },
+      aspectRatio: data.aspectRatio,
+      resolution: data.resolution,
+      relatedVideoId: video.id,
+    });
+    return video;
   });
 }
 
 export async function completeVideoRecord(id: string, filename: string, account?: string) {
-  return prisma.video.update({
-    where: { id },
-    data: { status: "completed", filename, ...(account ? { account } : {}) },
+  return prisma.$transaction(async (tx) => {
+    const video = await tx.video.update({
+      where: { id },
+      data: { status: "completed", filename, ...(account ? { account } : {}) },
+    });
+    await tx.requestLog.updateMany({
+      where: { relatedVideoId: id },
+      data: { status: "completed", errorMessage: null, ...(account ? { account } : {}) },
+    });
+    return video;
   });
 }
 
 export async function failVideoRecord(id: string, errorMessage: string) {
-  return prisma.video.update({
-    where: { id },
-    data: { status: "failed", errorMessage },
+  return prisma.$transaction(async (tx) => {
+    const video = await tx.video.update({
+      where: { id },
+      data: { status: "failed", errorMessage },
+    });
+    await logRequestFailed(tx, { relatedVideoId: id }, errorMessage);
+    return video;
   });
 }
 
@@ -411,7 +436,7 @@ export async function getVideoById(id: string) {
 }
 
 /** Xóa hẳn video: file mp4 + thumbnail + record DB. Ledger dùng SetNull nên không kẹt khóa ngoại. */
-export async function deleteVideo(id: string): Promise<boolean> {
+export async function deleteVideo(id: string, deletedBy?: string): Promise<boolean> {
   const videoPath = getSafeVideoPath(id);
   if (videoPath && fs.existsSync(videoPath)) {
     try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
@@ -419,6 +444,9 @@ export async function deleteVideo(id: string): Promise<boolean> {
   const thumbPath = path.join(VIDEOS_DIR, "thumbs", `${id}.jpg`);
   if (fs.existsSync(thumbPath)) {
     try { fs.unlinkSync(thumbPath); } catch { /* ignore */ }
+  }
+  if (deletedBy) {
+    await markRequestLogVideoDeleted(id, deletedBy).catch(() => undefined);
   }
   try {
     await prisma.video.delete({ where: { id } });

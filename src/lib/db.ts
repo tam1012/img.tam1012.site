@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import { logRequestStart, logRequestComplete, logRequestFailed, markRequestLogImageDeleted } from "./request-log";
 
 export interface ProviderConfig {
   id: string;
@@ -209,26 +210,43 @@ export async function deleteProvider(id: string): Promise<boolean> {
 }
 
 async function insertImageRecord(input: ImageCreateInput): Promise<ImageRecord> {
-  const image = await prisma.image.create({
-    data: {
-      userId: input.userId,
-      prompt: input.prompt,
-      editPrompt: input.editPrompt || null,
-      providerId: input.providerId,
-      providerName: input.providerName,
-      model: input.model,
-      aspectRatio: input.aspectRatio || null,
-      resolution: input.resolution || null,
-      width: input.width || null,
-      height: input.height || null,
-      quality: input.quality || null,
-      costVnd: input.costVnd,
-      originalImageId: input.originalImageId || null,
-      idempotencyKey: input.idempotencyKey || null,
-      batchId: input.batchId || null,
-      status: "processing",
-    },
-    include: { user: true },
+  const image = await prisma.$transaction(async (tx) => {
+    const created = await tx.image.create({
+      data: {
+        userId: input.userId,
+        prompt: input.prompt,
+        editPrompt: input.editPrompt || null,
+        providerId: input.providerId,
+        providerName: input.providerName,
+        model: input.model,
+        aspectRatio: input.aspectRatio || null,
+        resolution: input.resolution || null,
+        width: input.width || null,
+        height: input.height || null,
+        quality: input.quality || null,
+        costVnd: input.costVnd,
+        originalImageId: input.originalImageId || null,
+        idempotencyKey: input.idempotencyKey || null,
+        batchId: input.batchId || null,
+        status: "processing",
+      },
+      include: { user: true },
+    });
+
+    const kind = created.editPrompt || created.originalImageId ? "edit" : "generate";
+    await logRequestStart(tx, {
+      userId: created.userId,
+      kind,
+      model: created.model,
+      providerName: created.providerName,
+      costVnd: created.costVnd,
+      aspectRatio: created.aspectRatio,
+      resolution: created.resolution,
+      batchId: created.batchId,
+      relatedImageId: created.id,
+    });
+
+    return created;
   });
   return imageToRecord(image);
 }
@@ -280,6 +298,8 @@ export async function completeImageRecord(id: string, updates: { filename: strin
       },
     });
 
+    await logRequestComplete(tx, { relatedImageId: image.id }, { model: image.model });
+
     return image;
   });
 
@@ -287,12 +307,15 @@ export async function completeImageRecord(id: string, updates: { filename: strin
 }
 
 export async function failImageRecord(id: string, errorMessage: string) {
-  await prisma.image.updateMany({
-    where: { id },
-    data: {
-      status: "failed",
-      errorMessage: errorMessage.slice(0, 1000),
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.image.updateMany({
+      where: { id },
+      data: {
+        status: "failed",
+        errorMessage: errorMessage.slice(0, 1000),
+      },
+    });
+    await logRequestFailed(tx, { relatedImageId: id }, errorMessage);
   });
 }
 
@@ -375,6 +398,9 @@ export async function softDeleteImage(id: string, deletedBy: string, ownerUserId
       deletedBy,
     },
   });
+  if (result.count > 0) {
+    await markRequestLogImageDeleted([id], deletedBy, "soft");
+  }
   return result.count > 0;
 }
 
@@ -399,6 +425,9 @@ export async function softDeleteImages(
       deletedBy,
     },
   });
+  if (result.count > 0) {
+    await markRequestLogImageDeleted(uniqueIds, deletedBy, "soft");
+  }
   return result.count;
 }
 
@@ -424,8 +453,12 @@ export async function hardDeleteImages(
   });
   if (rows.length === 0) return { deleted: 0, filenames: [] };
 
+  const rowIds = rows.map((r) => r.id);
+  // Đánh dấu log trước khi xóa record (không FK cascade nên phải chủ động).
+  await markRequestLogImageDeleted(rowIds, ownerUserId, "hard");
+
   const result = await prisma.image.deleteMany({
-    where: { id: { in: rows.map((r) => r.id) } },
+    where: { id: { in: rowIds } },
   });
   return {
     deleted: result.count,
@@ -440,6 +473,8 @@ export async function hardDeleteAllUserImages(userId: string): Promise<{ deleted
     select: { id: true, filename: true },
   });
   if (rows.length === 0) return { deleted: 0, filenames: [] };
+
+  await markRequestLogImageDeleted(rows.map((r) => r.id), userId, "hard");
 
   const result = await prisma.image.deleteMany({ where: { userId } });
   return {

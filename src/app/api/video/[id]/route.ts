@@ -107,7 +107,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Không có quyền" }, { status: 403 });
   }
 
-  if (!(await deleteVideo(id))) {
+  if (!(await deleteVideo(id, user.id))) {
     return NextResponse.json({ error: "Video không tồn tại" }, { status: 404 });
   }
 

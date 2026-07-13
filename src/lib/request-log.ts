@@ -1,4 +1,114 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+
+// Chấp nhận cả prisma thường lẫn tx trong transaction.
+type Db = Prisma.TransactionClient | typeof prisma;
+
+export type RequestDeleteMode = "soft" | "hard";
+
+/** Ghi dòng nhật ký request mới (trạng thái processing). Upsert theo relatedImageId/relatedVideoId để retry idempotent. */
+export async function logRequestStart(
+  db: Db,
+  input: {
+    userId: string;
+    kind: RequestLogKind;
+    model: string;
+    providerName?: string | null;
+    account?: string | null;
+    costVnd: number;
+    aspectRatio?: string | null;
+    resolution?: string | null;
+    batchId?: string | null;
+    relatedImageId?: string | null;
+    relatedVideoId?: string | null;
+  },
+): Promise<void> {
+  const data = {
+    userId: input.userId,
+    kind: input.kind,
+    model: input.model,
+    providerName: input.providerName ?? null,
+    account: input.account ?? null,
+    costVnd: input.costVnd,
+    aspectRatio: input.aspectRatio ?? null,
+    resolution: input.resolution ?? null,
+    batchId: input.batchId ?? null,
+    relatedImageId: input.relatedImageId ?? null,
+    relatedVideoId: input.relatedVideoId ?? null,
+    status: "processing" as const,
+  };
+  if (input.relatedImageId) {
+    await db.requestLog.upsert({ where: { relatedImageId: input.relatedImageId }, update: {}, create: data });
+  } else if (input.relatedVideoId) {
+    await db.requestLog.upsert({ where: { relatedVideoId: input.relatedVideoId }, update: {}, create: data });
+  } else {
+    await db.requestLog.create({ data });
+  }
+}
+
+/** Đánh dấu request hoàn tất (completed) theo media id. */
+export async function logRequestComplete(
+  db: Db,
+  ref: { relatedImageId?: string | null; relatedVideoId?: string | null },
+  updates?: { model?: string; costVnd?: number },
+): Promise<void> {
+  const where = ref.relatedImageId
+    ? { relatedImageId: ref.relatedImageId }
+    : ref.relatedVideoId
+      ? { relatedVideoId: ref.relatedVideoId }
+      : null;
+  if (!where) return;
+  await db.requestLog.updateMany({
+    where,
+    data: {
+      status: "completed",
+      errorMessage: null,
+      ...(updates?.model ? { model: updates.model } : {}),
+      ...(typeof updates?.costVnd === "number" ? { costVnd: updates.costVnd } : {}),
+    },
+  });
+}
+
+/** Đánh dấu request thất bại (failed) theo media id. */
+export async function logRequestFailed(
+  db: Db,
+  ref: { relatedImageId?: string | null; relatedVideoId?: string | null },
+  errorMessage: string,
+): Promise<void> {
+  const where = ref.relatedImageId
+    ? { relatedImageId: ref.relatedImageId }
+    : ref.relatedVideoId
+      ? { relatedVideoId: ref.relatedVideoId }
+      : null;
+  if (!where) return;
+  await db.requestLog.updateMany({
+    where,
+    data: { status: "failed", errorMessage: errorMessage.slice(0, 1000) },
+  });
+}
+
+/** Đánh dấu media nguồn đã bị xóa — giữ nguyên dòng log để truy vết. */
+export async function markRequestLogImageDeleted(
+  imageIds: string[],
+  deletedBy: string,
+  mode: RequestDeleteMode,
+): Promise<void> {
+  const ids = [...new Set(imageIds.filter(Boolean))];
+  if (ids.length === 0) return;
+  await prisma.requestLog.updateMany({
+    where: { relatedImageId: { in: ids } },
+    data: { mediaDeletedAt: new Date(), mediaDeletedBy: deletedBy, mediaDeleteMode: mode },
+  });
+}
+
+/** Đánh dấu video nguồn đã bị xóa vĩnh viễn — giữ nguyên dòng log để truy vết. */
+export async function markRequestLogVideoDeleted(videoId: string, deletedBy: string): Promise<void> {
+  if (!videoId) return;
+  await prisma.requestLog.updateMany({
+    where: { relatedVideoId: videoId },
+    data: { mediaDeletedAt: new Date(), mediaDeletedBy: deletedBy, mediaDeleteMode: "hard" },
+  });
+}
 
 export type RequestLogKind = "generate" | "edit" | "video";
 export type RequestLogStatus = "processing" | "completed" | "failed" | "deleted";
@@ -19,6 +129,9 @@ export interface RequestLogRow {
   error_message: string | null;
   batch_id: string | null;
   created_at: string;
+  media_deleted_at: string | null;
+  media_deleted_by: string | null;
+  media_delete_mode: RequestDeleteMode | null;
 }
 
 export interface RequestLogSummary {
@@ -70,158 +183,81 @@ function createdAtRange(from?: Date | null, to?: Date | null) {
 }
 
 /**
- * Nhật ký request tạo/sửa ảnh + tạo video, gộp từ bảng Image và Video.
+ * Nhật ký request tạo/sửa ảnh + tạo video, đọc từ bảng RequestLog bất biến.
  * duration_ms là ước lượng (updatedAt − createdAt); luồng chạy đồng bộ nên xấp xỉ thời gian gọi model.
- * Bao gồm cả ảnh đã soft-delete (request vẫn từng xảy ra).
+ * Dòng log KHÔNG mất khi media bị xóa; media đã xóa mang cờ media_deleted_*.
+ * Bộ lọc status "deleted" nghĩa là "media nguồn đã bị xóa" (không phải trạng thái request).
  */
 export async function getRequestLog(query: RequestLogQuery): Promise<RequestLogResult> {
   const page = Math.max(1, Math.floor(query.page || 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(query.pageSize || 50)));
   const dateRange = createdAtRange(query.from, query.to);
 
-  const wantImages = query.kind !== "video";
-  const wantVideos = query.kind !== "generate" && query.kind !== "edit";
-
-  // Image "kind" (generate/edit) không phải cột riêng mà suy từ editPrompt/originalImageId,
-  // nên lọc theo kind cho ảnh được thực hiện sau khi map, không ở tầng DB.
-  const imageWhere = {
-    ...(query.status ? { status: query.status } : {}),
+  const where: Prisma.RequestLogWhereInput = {
+    ...(query.kind ? { kind: query.kind } : {}),
     ...(query.model ? { model: query.model } : {}),
     ...(dateRange ? { createdAt: dateRange } : {}),
-  };
-  const videoWhere = {
-    ...(query.status && query.status !== "deleted" ? { status: query.status } : {}),
-    ...(query.model ? { model: query.model } : {}),
-    ...(dateRange ? { createdAt: dateRange } : {}),
+    ...(query.status === "deleted"
+      ? { NOT: { mediaDeletedAt: null } }
+      : query.status
+        ? { status: query.status }
+        : {}),
   };
 
   const userSelect = { select: { id: true, displayName: true, email: true, phone: true } };
 
-  // Để phân trang đúng trên union 2 bảng: lấy tối đa (page*pageSize) dòng mới nhất từ mỗi nguồn,
-  // gộp, sort desc theo thời gian rồi cắt trang. Đủ cho quy mô hiện tại.
-  const takeCap = page * pageSize;
-
-  const [images, videos] = await Promise.all([
-    wantImages
-      ? prisma.image.findMany({
-          where: imageWhere,
-          orderBy: { createdAt: "desc" },
-          take: takeCap,
-          select: {
-            id: true, userId: true, model: true, providerName: true, status: true,
-            costVnd: true, aspectRatio: true, resolution: true, errorMessage: true,
-            batchId: true, editPrompt: true, originalImageId: true,
-            createdAt: true, updatedAt: true, user: userSelect,
-          },
-        })
-      : Promise.resolve([]),
-    wantVideos
-      ? prisma.video.findMany({
-          where: videoWhere,
-          orderBy: { createdAt: "desc" },
-          take: takeCap,
-          select: {
-            id: true, userId: true, model: true, status: true, costVnd: true,
-            aspectRatio: true, resolution: true, account: true, errorMessage: true,
-            createdAt: true, updatedAt: true, user: userSelect,
-          },
-        })
-      : Promise.resolve([]),
+  const [total, records, summary, modelRows] = await Promise.all([
+    prisma.requestLog.count({ where }),
+    prisma.requestLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: { user: userSelect },
+    }),
+    buildSummary(where),
+    prisma.requestLog.findMany({ distinct: ["model"], select: { model: true }, take: 100 }),
   ]);
 
-  const rows: RequestLogRow[] = [];
+  const rows: RequestLogRow[] = records.map((r) => ({
+    id: r.id,
+    kind: r.kind as RequestLogKind,
+    model: r.model,
+    provider_name: r.providerName,
+    account: r.account,
+    user_label: userLabel(r.user),
+    user_id: r.userId,
+    status: r.status as RequestLogStatus,
+    duration_ms: durationMs(r.status, r.createdAt, r.updatedAt),
+    cost_vnd: r.costVnd,
+    aspect_ratio: r.aspectRatio,
+    resolution: r.resolution,
+    error_message: r.errorMessage,
+    batch_id: r.batchId,
+    created_at: r.createdAt.toISOString(),
+    media_deleted_at: r.mediaDeletedAt?.toISOString() || null,
+    media_deleted_by: r.mediaDeletedBy,
+    media_delete_mode: (r.mediaDeleteMode as RequestDeleteMode | null) || null,
+  }));
 
-  for (const img of images) {
-    const kind: RequestLogKind = img.editPrompt || img.originalImageId ? "edit" : "generate";
-    if (query.kind && query.kind !== kind) continue;
-    rows.push({
-      id: img.id,
-      kind,
-      model: img.model,
-      provider_name: img.providerName,
-      account: null,
-      user_label: userLabel(img.user),
-      user_id: img.userId,
-      status: img.status as RequestLogStatus,
-      duration_ms: durationMs(img.status, img.createdAt, img.updatedAt),
-      cost_vnd: img.costVnd,
-      aspect_ratio: img.aspectRatio,
-      resolution: img.resolution,
-      error_message: img.errorMessage,
-      batch_id: img.batchId,
-      created_at: img.createdAt.toISOString(),
-    });
-  }
+  const models = [...new Set(modelRows.map((m) => m.model).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
-  for (const vid of videos) {
-    rows.push({
-      id: vid.id,
-      kind: "video",
-      model: vid.model,
-      provider_name: null,
-      account: vid.account,
-      user_label: userLabel(vid.user),
-      user_id: vid.userId,
-      status: vid.status as RequestLogStatus,
-      duration_ms: durationMs(vid.status, vid.createdAt, vid.updatedAt),
-      cost_vnd: vid.costVnd,
-      aspect_ratio: vid.aspectRatio,
-      resolution: vid.resolution,
-      error_message: vid.errorMessage,
-      batch_id: null,
-      created_at: vid.createdAt.toISOString(),
-    });
-  }
-
-  rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
-
-  const total = await countRequestLog(query, wantImages, wantVideos, imageWhere, videoWhere);
-  const pageRows = rows.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
-  const models = await distinctModels(wantImages, wantVideos);
-  const summary = await buildSummary(query, wantImages, wantVideos, imageWhere, videoWhere);
-
-  return { rows: pageRows, total, page, page_size: pageSize, models, summary };
+  return { rows, total, page, page_size: pageSize, models, summary };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function countRequestLog(query: RequestLogQuery, wantImages: boolean, wantVideos: boolean, imageWhere: any, videoWhere: any): Promise<number> {
-  // Khi lọc theo kind generate/edit, count ảnh chính xác cần phân biệt edit — dùng where bổ sung.
-  const [imgCount, vidCount] = await Promise.all([
-    wantImages ? prisma.image.count({ where: { ...imageWhere, ...imageKindWhere(query.kind) } }) : Promise.resolve(0),
-    wantVideos ? prisma.video.count({ where: videoWhere }) : Promise.resolve(0),
-  ]);
-  return imgCount + vidCount;
-}
-
-function imageKindWhere(kind?: RequestLogKind | null) {
-  if (kind === "edit") return { OR: [{ NOT: { editPrompt: null } }, { NOT: { originalImageId: null } }] };
-  if (kind === "generate") return { editPrompt: null, originalImageId: null };
-  return {};
-}
-
-async function distinctModels(wantImages: boolean, wantVideos: boolean): Promise<string[]> {
-  const [imgModels, vidModels] = await Promise.all([
-    wantImages ? prisma.image.findMany({ distinct: ["model"], select: { model: true }, take: 100 }) : Promise.resolve([]),
-    wantVideos ? prisma.video.findMany({ distinct: ["model"], select: { model: true }, take: 100 }) : Promise.resolve([]),
-  ]);
-  const set = new Set<string>();
-  for (const r of imgModels) if (r.model) set.add(r.model);
-  for (const r of vidModels) if (r.model) set.add(r.model);
-  return [...set].sort((a, b) => a.localeCompare(b));
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function buildSummary(query: RequestLogQuery, wantImages: boolean, wantVideos: boolean, imageWhere: any, videoWhere: any): Promise<RequestLogSummary> {
-  const imgWhere = { ...imageWhere, ...imageKindWhere(query.kind) };
-  const [imgGroups, vidGroups, imgDur, vidDur] = await Promise.all([
-    wantImages ? prisma.image.groupBy({ by: ["status"], where: imgWhere, _count: { _all: true } }) : Promise.resolve([]),
-    wantVideos ? prisma.video.groupBy({ by: ["status"], where: videoWhere, _count: { _all: true } }) : Promise.resolve([]),
-    wantImages ? prisma.image.findMany({ where: { ...imgWhere, status: "completed" }, select: { createdAt: true, updatedAt: true }, take: 1000, orderBy: { createdAt: "desc" } }) : Promise.resolve([]),
-    wantVideos ? prisma.video.findMany({ where: { ...videoWhere, status: "completed" }, select: { createdAt: true, updatedAt: true }, take: 1000, orderBy: { createdAt: "desc" } }) : Promise.resolve([]),
+async function buildSummary(where: Prisma.RequestLogWhereInput): Promise<RequestLogSummary> {
+  const [groups, durRows] = await Promise.all([
+    prisma.requestLog.groupBy({ by: ["status"], where, _count: { _all: true } }),
+    prisma.requestLog.findMany({
+      where: { ...where, status: "completed" },
+      select: { createdAt: true, updatedAt: true },
+      take: 1000,
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   let completed = 0, failed = 0, processing = 0, total = 0;
-  for (const g of [...imgGroups, ...vidGroups]) {
+  for (const g of groups) {
     const c = g._count._all;
     total += c;
     if (g.status === "completed") completed += c;
@@ -232,7 +268,7 @@ async function buildSummary(query: RequestLogQuery, wantImages: boolean, wantVid
   const finished = completed + failed;
   const success_rate = finished > 0 ? completed / finished : null;
 
-  const durations = [...imgDur, ...vidDur]
+  const durations = durRows
     .map((r) => r.updatedAt.getTime() - r.createdAt.getTime())
     .filter((ms) => ms >= 0);
   const avg_duration_ms = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : null;
