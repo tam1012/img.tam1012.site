@@ -506,9 +506,9 @@ export default function GalleryPage() {
         )}
 
         {selected && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 pb-[calc(5rem_+_env(safe-area-inset-bottom))] md:pb-4"
             onClick={() => { setSelected(null); setExpandPrompt(false); setExpandEdit(false); setCopied(false); }}>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden max-w-3xl w-full h-[90vh] flex flex-col"
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden max-w-3xl w-full h-[90vh] max-h-full flex flex-col"
               onClick={(e) => e.stopPropagation()}>
               <div className="flex-1 min-h-0 flex items-center justify-center bg-zinc-950 p-2">
                 <a href={`/api/images/${selected.id}`} target="_blank" rel="noopener noreferrer"
