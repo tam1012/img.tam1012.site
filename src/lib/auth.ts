@@ -1,5 +1,6 @@
 import { getIronSession, SessionOptions } from "iron-session";
 import { cookies } from "next/headers";
+import { extractBearerToken, findUserIdByApiKey } from "./api-keys";
 import { prisma } from "./prisma";
 
 export type Role = "admin" | "user";
@@ -46,12 +47,9 @@ export async function getSession() {
   return getIronSession<SessionData>(cookieStore, getSessionOptions());
 }
 
-export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const session = await getSession();
-  if (!session.isLoggedIn || !session.userId) return null;
-
+async function loadActiveUser(userId: string): Promise<CurrentUser | null> {
   const user = await prisma.user.findUnique({
-    where: { id: session.userId },
+    where: { id: userId },
     include: { wallet: true },
   });
 
@@ -68,8 +66,29 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   };
 }
 
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  const session = await getSession();
+  if (!session.isLoggedIn || !session.userId) return null;
+  return loadActiveUser(session.userId);
+}
+
+/** Session cookie hoặc Bearer API key. Ưu tiên Bearer nếu có header. */
+export async function getUserFromRequest(req: Request): Promise<CurrentUser | null> {
+  const token = extractBearerToken(req);
+  if (token) {
+    const userId = await findUserIdByApiKey(token);
+    if (!userId) return null;
+    return loadActiveUser(userId);
+  }
+  return getCurrentUser();
+}
+
 export async function requireUser(): Promise<CurrentUser | null> {
   return getCurrentUser();
+}
+
+export async function requireUserFromRequest(req: Request): Promise<CurrentUser | null> {
+  return getUserFromRequest(req);
 }
 
 export async function requireAdmin(): Promise<CurrentUser | null> {

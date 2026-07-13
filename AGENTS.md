@@ -23,6 +23,7 @@ Công cụ tạo/chỉnh ảnh và video bằng AI cho nhóm nhỏ/semi-public. 
 8. **Billing page** — PayOS + lịch sử giao dịch cho user.
 9. **Tạo video** — Google Veo và Grok Imagine Video, charge/refund như ảnh.
 10. **Prompt Refine** — mọi user đã đăng nhập dùng `gemini-3-flash-agent` trên Generate/Edit/Video; preview, sửa và hoàn tác trước khi gửi.
+11. **Public API v1 (MVP)** — user tạo API key tại `/billing`, gọi `POST /api/v1/images/generate` bằng Bearer để tạo 1 ảnh (n8n/automation). Docs: `docs/public-api-v1.md`.
 
 ## Tech stack
 
@@ -77,6 +78,8 @@ src/
 │   ├── api/edit
 │   ├── api/gallery
 │   ├── api/images/[id]
+│   ├── api/api-keys
+│   ├── api/v1/{providers,images}
 │   ├── api/providers
 │   ├── api/prompts
 │   ├── api/prompt-refine
@@ -89,8 +92,11 @@ src/
 │   ├── admin/
 │   └── settings/
 ├── components/PromptRefineControls.tsx
+├── components/ApiKeysPanel.tsx
 └── lib/
     ├── auth.ts
+    ├── api-keys.ts
+    ├── generate-image.ts
     ├── prisma.ts
     ├── db.ts
     ├── storage.ts

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Script from "next/script";
 import AppShell from "@/components/AppShell";
+import ApiKeysPanel from "@/components/ApiKeysPanel";
 import { formatLedgerType } from "@/lib/pricing";
 
 interface Wallet {
@@ -210,6 +211,8 @@ export default function BillingPage() {
             <div id="payos-embed" className="w-full min-h-[640px] [&_iframe]:!w-full [&_iframe]:!min-h-[640px] [&_iframe]:border-0" />
           </section>
         )}
+
+        <ApiKeysPanel />
 
         <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
           <h2 className="text-sm font-medium text-zinc-200 mb-2">Cần hỗ trợ?</h2>

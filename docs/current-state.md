@@ -1,6 +1,6 @@
 # IMG Studio — Current State
 
-> Snapshot ngày 2026-07-11. Đọc cùng `AGENTS.md` trước khi sửa code/deploy.
+> Snapshot ngày 2026-07-13. Đọc cùng `AGENTS.md` trước khi sửa code/deploy.
 
 ## Production
 
@@ -9,6 +9,17 @@
 - Source/deploy: local repo → push `main` → GitHub Actions → `/home/ubuntu/img-studio`.
 - Compose: `img-studio` + `img-studio-db`; PostgreSQL 16, Prisma, filesystem `/data`.
 - Generation hiện chạy synchronous trong API route; không có background worker/ImageJob runtime.
+
+## Public API v1 (MVP — tạo ảnh)
+
+- User active tạo/thu hồi API key tại `/billing` (UI `ApiKeysPanel`); tối đa 5 key active/user.
+- Key format `img_…`; DB chỉ lưu SHA-256 hash + prefix mask; plain key hiện 1 lần lúc tạo.
+- Auth: `Authorization: Bearer <key>` qua `requireUserFromRequest` (ưu tiên Bearer, fallback cookie session).
+- Middleware cho phép `/api/v1/*` không cần cookie.
+- Endpoints: `GET /api/v1/providers`, `POST /api/v1/images/generate` (count=1), `GET /api/v1/images/:id`, `GET /api/v1/images/:id/file`.
+- Generate dùng shared helper `src/lib/generate-image.ts` (web `/api/generate` count=1 cũng gọi chung).
+- Idempotency-Key bắt buộc; rate limit generate 20/phút/user; giá = web.
+- Chưa có: edit/video/batch/webhook async. Docs: `docs/public-api-v1.md`.
 
 ## Prompt Refine
 
@@ -53,7 +64,7 @@
 - Prompt Refine public commit: `a591f26`.
 - xAI direct pool commits: `9d63c26`, `73a2921`.
 - xAI auto-sync commits: `4c5e9c6`, `18c586c`.
-- Sau rollout gần nhất: 59/59 tests pass, Next.js production build pass, GitHub Actions deploy success.
+- Public API v1 MVP: schema `ApiKey`, `/api/v1/*`, UI `/billing`, docs `docs/public-api-v1.md` (local tests pass; chờ deploy + smoke production).
 
 ## Operational rules
 
