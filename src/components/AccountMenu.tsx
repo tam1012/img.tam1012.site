@@ -86,6 +86,7 @@ export default function AccountMenu({ me, onLogout, compact = false }: AccountMe
           </div>
           <div className="p-1.5">
             <MenuLink href="/billing" label="Nạp tiền" />
+            <MenuLink href="/docs/api" label="Hướng dẫn API" />
             {role === "admin" && (
               <>
                 <MenuLink href="/settings" label="Cài đặt" />

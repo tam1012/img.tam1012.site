@@ -19,7 +19,8 @@
 - Endpoints: `GET /api/v1/providers`, `POST /api/v1/images/generate` (count=1), `GET /api/v1/images/:id`, `GET /api/v1/images/:id/file`.
 - Generate dùng shared helper `src/lib/generate-image.ts` (web `/api/generate` count=1 cũng gọi chung).
 - Idempotency-Key bắt buộc; rate limit generate 20/phút/user; giá = web.
-- Chưa có: edit/video/batch/webhook async. Docs: `docs/public-api-v1.md`.
+- Chưa có: edit/video/batch/webhook async.
+- Docs user (login): `/docs/api`. Bản repo: `docs/public-api-v1.md`.
 
 ## Prompt Refine
 

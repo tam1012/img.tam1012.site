@@ -2,6 +2,8 @@
 
 > Dành cho automation (n8n, Make, script). Chỉ hỗ trợ **tạo 1 ảnh / request**. Edit ảnh và video sẽ làm sau.
 
+**Trang user (đăng nhập):** `https://imgstudio.site/docs/api` — bản đọc trên web, link từ `/billing` và menu tài khoản.
+
 Base URL production: `https://imgstudio.site`
 
 ## 1. Tạo API key

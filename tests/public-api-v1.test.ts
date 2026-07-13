@@ -63,5 +63,17 @@ describe("public API v1 MVP", () => {
     expect(docs).toContain("Authorization: Bearer");
     expect(docs).toContain("Idempotency-Key");
     expect(docs).toContain("n8n");
+    expect(docs).toContain("/docs/api");
+  });
+
+  it("exposes a logged-in web docs page and links from billing UI", () => {
+    const page = read("src/app/docs/api/page.tsx");
+    const panel = read("src/components/ApiKeysPanel.tsx");
+    const menu = read("src/components/AccountMenu.tsx");
+    expect(page).toContain("Hướng dẫn API v1");
+    expect(page).toContain("/api/v1/images/generate");
+    expect(page).toContain("Idempotency-Key");
+    expect(panel).toContain('href="/docs/api"');
+    expect(menu).toContain('href="/docs/api"');
   });
 });

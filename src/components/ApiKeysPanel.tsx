@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
@@ -101,11 +102,19 @@ export default function ApiKeysPanel() {
 
   return (
     <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 space-y-4">
-      <div>
-        <h2 className="text-sm font-medium text-zinc-200">API key (n8n / automation)</h2>
-        <p className="mt-1 text-sm text-zinc-400">
-          Dùng để gọi API tạo ảnh từ tool ngoài. Giữ bí mật như mật khẩu. Key chỉ hiện đầy đủ một lần khi tạo.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium text-zinc-200">API key (n8n / automation)</h2>
+          <p className="mt-1 text-sm text-zinc-400">
+            Dùng để gọi API tạo ảnh từ tool ngoài. Giữ bí mật như mật khẩu. Key chỉ hiện đầy đủ một lần khi tạo.
+          </p>
+        </div>
+        <Link
+          href="/docs/api"
+          className="shrink-0 text-xs text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline"
+        >
+          Hướng dẫn API
+        </Link>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
@@ -191,8 +200,11 @@ export default function ApiKeysPanel() {
       <p className="text-xs text-zinc-600 leading-relaxed">
         Endpoint tạo ảnh: <code className="text-zinc-400">POST /api/v1/images/generate</code> với header{" "}
         <code className="text-zinc-400">Authorization: Bearer &lt;key&gt;</code> và{" "}
-        <code className="text-zinc-400">Idempotency-Key</code>. Chi tiết xem tài liệu{" "}
-        <code className="text-zinc-400">docs/public-api-v1.md</code>.
+        <code className="text-zinc-400">Idempotency-Key</code>.{" "}
+        <Link href="/docs/api" className="text-zinc-400 hover:text-zinc-200 underline-offset-2 hover:underline">
+          Xem hướng dẫn API
+        </Link>
+        .
       </p>
 
       <ConfirmDialog

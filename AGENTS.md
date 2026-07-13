@@ -23,7 +23,7 @@ Công cụ tạo/chỉnh ảnh và video bằng AI cho nhóm nhỏ/semi-public. 
 8. **Billing page** — PayOS + lịch sử giao dịch cho user.
 9. **Tạo video** — Google Veo và Grok Imagine Video, charge/refund như ảnh.
 10. **Prompt Refine** — mọi user đã đăng nhập dùng `gemini-3-flash-agent` trên Generate/Edit/Video; preview, sửa và hoàn tác trước khi gửi.
-11. **Public API v1 (MVP)** — user tạo API key tại `/billing`, gọi `POST /api/v1/images/generate` bằng Bearer để tạo 1 ảnh (n8n/automation). Docs: `docs/public-api-v1.md`.
+11. **Public API v1 (MVP)** — user tạo API key tại `/billing`, gọi `POST /api/v1/images/generate` bằng Bearer để tạo 1 ảnh (n8n/automation). Hướng dẫn web: `/docs/api`. Repo: `docs/public-api-v1.md`.
 
 ## Tech stack
 
