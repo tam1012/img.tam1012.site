@@ -66,7 +66,9 @@ export default function BillingPage() {
   const [notice, setNotice] = useState<"success" | "cancel" | null>(null);
   const [scriptReady, setScriptReady] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [activePackage, setActivePackage] = useState<(typeof PACKAGES)[number] | null>(null);
   const exitRef = useRef<(() => void) | null>(null);
+  const embedSectionRef = useRef<HTMLElement | null>(null);
 
   const price = wallet?.image_price_vnd ?? 100;
   const isAdmin = role === "admin";
@@ -104,22 +106,35 @@ export default function BillingPage() {
         setNotice("success");
         refreshWallet();
         setCheckoutUrl(null);
+        setActivePackage(null);
       },
       onCancel: () => {
         setNotice("cancel");
         setCheckoutUrl(null);
+        setActivePackage(null);
       },
     });
     exitRef.current = exit;
     open(true);
+    // Đưa khung QR vào giữa màn hình để user không phải cuộn tìm.
+    requestAnimationFrame(() => {
+      embedSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
     return () => {
       exit();
       exitRef.current = null;
     };
   }, [checkoutUrl, refreshWallet]);
 
+  function closeCheckout() {
+    exitRef.current?.();
+    setCheckoutUrl(null);
+    setActivePackage(null);
+  }
+
   async function buyPackage(id: string) {
     if (loadingId || checkoutUrl) return;
+    const pkg = PACKAGES.find((item) => item.id === id) ?? null;
     setLoadingId(id);
     setError("");
     setNotice(null);
@@ -132,12 +147,14 @@ export default function BillingPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       if (scriptReady && window.PayOSCheckout) {
+        setActivePackage(pkg);
         setCheckoutUrl(data.checkoutUrl);
       } else {
         window.location.href = data.checkoutUrl;
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Không tạo được link thanh toán");
+      setActivePackage(null);
     } finally {
       setLoadingId(null);
     }
@@ -198,17 +215,51 @@ export default function BillingPage() {
         </section>
 
         {checkoutUrl && (
-          <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-zinc-200">Quét mã QR để thanh toán</h2>
+          <section
+            ref={embedSectionRef}
+            className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6 space-y-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-medium text-zinc-200">Quét mã QR để thanh toán</h2>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Dùng app ngân hàng quét mã. Số dư tự cộng sau khi thanh toán thành công.
+                </p>
+                {activePackage && (
+                  <p className="text-xs text-zinc-400 mt-2">
+                    Gói đang nạp:{" "}
+                    <span className="text-zinc-200 font-medium">{formatVnd(activePackage.amountVnd)}</span>
+                    {" · "}
+                    {Math.floor(activePackage.amountVnd / price)} ảnh
+                  </p>
+                )}
+              </div>
               <button
-                onClick={() => setCheckoutUrl(null)}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-300 transition-colors cursor-pointer"
+                onClick={closeCheckout}
+                className="shrink-0 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-300 transition-colors cursor-pointer"
               >
                 Huỷ
               </button>
             </div>
-            <div id="payos-embed" className="w-full min-h-[640px] [&_iframe]:!w-full [&_iframe]:!min-h-[640px] [&_iframe]:border-0" />
+            <div className="flex justify-center">
+              <div className="w-full max-w-[380px] rounded-xl overflow-hidden border border-zinc-700 bg-white shadow-sm">
+                <div
+                  id="payos-embed"
+                  className="w-full h-[500px] sm:h-[520px] [&_iframe]:!block [&_iframe]:!h-full [&_iframe]:!w-full [&_iframe]:border-0"
+                />
+              </div>
+            </div>
+            <p className="text-center text-xs text-zinc-500">
+              Không quét được?{" "}
+              <a
+                href={checkoutUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-zinc-300 hover:text-white underline-offset-2 hover:underline"
+              >
+                Mở trang thanh toán PayOS
+              </a>
+            </p>
           </section>
         )}
 
