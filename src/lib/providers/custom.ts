@@ -440,20 +440,47 @@ async function grokDirectGenerate(model: string, params: GenerateParams): Promis
 }
 
 async function grokDirectEdit(model: string, params: EditParams): Promise<GeneratedImage> {
+  // xAI /v1/images/edits bắt buộc application/json (không phải multipart như OpenAI SDK images.edit).
+  const source = params.images[0];
+  if (!source) throw new Error("Thiếu ảnh nguồn để chỉnh sửa với Grok");
+
   const grokRes = params.resolution === "4K" ? "2k" : params.resolution.toLowerCase();
   const prefix = buildImageInstructionPrefix(params);
+  const mimeType = source.mimeType || "image/png";
+  const body = {
+    model,
+    prompt: `${prefix}${params.prompt}`,
+    image: {
+      url: `data:${mimeType};base64,${source.buffer.toString("base64")}`,
+      type: "image_url" as const,
+    },
+    aspect_ratio: params.aspectRatio,
+    resolution: grokRes,
+  };
+
   const { value, account } = await runWithXaiAccount(xaiAuthPool, async (selected) => {
-    const client = new OpenAI({ apiKey: selected.apiKey, baseURL: XAI_BASE_URL });
-    const file = await toFile(params.images[0].buffer, "image.png", { type: params.images[0].mimeType || "image/png" });
-    const response = await client.images.edit({
-      model,
-      image: file,
-      prompt: `${prefix}${params.prompt}`,
-      // @ts-expect-error - xAI dùng aspect_ratio/resolution, OpenAI types không có
-      aspect_ratio: params.aspectRatio,
-      resolution: grokRes,
+    const res = await fetch(`${XAI_BASE_URL}/images/edits`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${selected.apiKey}`,
+      },
+      body: JSON.stringify(body),
     });
-    return extractOpenAIImage(response, model);
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      const msg = err?.error?.message || err?.error || err?.message || `HTTP ${res.status}`;
+      console.error(`[xAI image] edit failed account=${selected.id} status=${res.status}`);
+      // Gắn status để runWithXaiAccount nhận 401/429/403 và xoay account khi cần.
+      throw Object.assign(
+        new Error(`xAI edit: ${typeof msg === "string" ? msg : JSON.stringify(msg)}`),
+        { status: res.status },
+      );
+    }
+
+    const data = await res.json();
+    return extractOpenAIImage(data as OpenAI.Images.ImagesResponse, model);
   });
   console.log(`[xAI image] edited model=${model} account=${account.id}`);
   return value;
