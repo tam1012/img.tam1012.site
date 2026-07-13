@@ -230,7 +230,7 @@ export default function AdminPage() {
             <div>
               <h2 className="text-sm font-medium text-zinc-200">Ghi chú toàn site</h2>
               <p className="text-xs text-zinc-500 mt-1">
-                Hiện banner dưới header cho mọi user đã đăng nhập. Để trống rồi Lưu để ẩn.
+                Hiện banner dưới header cho mọi user đã đăng nhập. URL http/https sẽ thành link bấm được. Để trống rồi Lưu để ẩn.
               </p>
             </div>
             {siteNotice ? (
