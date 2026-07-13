@@ -108,8 +108,8 @@ export default function AdminLogsPage() {
       if (kind !== "all") params.set("kind", kind);
       if (status !== "all") params.set("status", status);
       if (model !== "all") params.set("model", model);
-      if (from) params.set("from", `${from}T00:00:00`);
-      if (to) params.set("to", `${to}T23:59:59.999`);
+      if (from) params.set("from", `${from}T00:00:00+07:00`);
+      if (to) params.set("to", `${to}T23:59:59.999+07:00`);
       params.set("page", String(page));
       const res = await fetch(`/api/admin/request-log?${params.toString()}`);
       const json = await res.json();
