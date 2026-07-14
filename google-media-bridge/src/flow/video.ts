@@ -30,9 +30,9 @@ export function resolveVideoKind(input: CreateVideoInput): JobKind {
 }
 
 export function mapVideoModelKey(duration: number): string {
-  // Observed Phase 1 design default for 4s text video.
-  if (duration <= 4) return "abra_t2v_4s";
-  return "abra_t2v_4s";
+  // Client usage keys observed in Flow bundle.
+  if (duration <= 4) return "veo_3_0_t2v";
+  return "veo_3_0_t2v";
 }
 
 export function mapVideoEndpoint(kind: JobKind): string {
@@ -63,13 +63,14 @@ export async function createFlowVideoJob(input: {
   const kind = resolveVideoKind(input.video);
   const endpoint = mapVideoEndpoint(kind);
   const modelKey = mapVideoModelKey(input.video.duration);
+  // Flow frontend uses grecaptcha action VIDEO_GENERATION for all video creates.
   const token = await createRecaptchaToken(input.page, {
     siteKey: input.siteKey,
-    action: input.action ?? "IMAGE_GENERATION",
+    action: input.action && input.action !== "IMAGE_GENERATION" ? input.action : "VIDEO_GENERATION",
   });
 
-  // Media upload for reference frames is account-bound. Phase 2 stores synthetic
-  // placeholders when no dedicated upload probe fixture is present yet.
+  // Media upload for reference frames is account-bound. Until upload is implemented,
+  // image/start-end modes pass synthetic IDs only for wiring tests and will fail upstream.
   const firstFrameImageMediaId = input.video.startImage
     ? `synthetic-start-${randomUUID()}`
     : undefined;
@@ -77,51 +78,80 @@ export async function createFlowVideoJob(input: {
     ? `synthetic-end-${randomUUID()}`
     : undefined;
 
+  const sessionId = randomUUID();
+  const batchId = randomUUID();
+  const clientContext: Record<string, unknown> = {
+    recaptchaContext: {
+      token,
+      applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
+    },
+    projectId: input.projectId,
+    sessionId,
+  };
+  // Tool is optional for some video paths; prefer VIDEO_FX when present in client builds.
+  if (process.env.FLOW_VIDEO_TOOL !== "none") {
+    clientContext.tool = process.env.FLOW_VIDEO_TOOL || "VIDEO_FX";
+  }
+
+  const requestItem: Record<string, unknown> = {
+    aspectRatio: mapVideoAspect(input.video.aspectRatio),
+    textInput: {
+      prompt: input.video.prompt,
+      expandedPrompt: input.video.prompt,
+      structuredPrompt: { parts: [{ text: input.video.prompt }] },
+    },
+    videoModelKey: modelKey,
+    seed: Math.floor(Math.random() * 2_000_000_000),
+  };
+  if (firstFrameImageMediaId) requestItem.firstFrameImageMediaId = firstFrameImageMediaId;
+  if (lastFrameImageMediaId) requestItem.lastFrameImageMediaId = lastFrameImageMediaId;
+
+  const body: Record<string, unknown> = {
+    clientContext,
+    mediaGenerationContext: { batchId },
+    requests: [requestItem],
+  };
+  // Non-text paths in the client set useV2ModelConfig.
+  if (kind !== "text_video") body.useV2ModelConfig = true;
+
   const result = await input.page.evaluate(
-    async ([endpointUrl, bearer, body]) => {
+    async ([endpointUrl, bearer, payload]) => {
       const res = await fetch(endpointUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${bearer}`,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       const raw = await res.text();
       return { status: res.status, raw };
     },
-    [
-      endpoint,
-      input.accessToken,
-      {
-        clientContext: {
-          recaptchaContext: {
-            token,
-            applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
-          },
-          projectId: input.projectId,
-          tool: "PINHOLE",
-          sessionId: randomUUID(),
-        },
-        requests: [
-          {
-            aspectRatio: mapVideoAspect(input.video.aspectRatio),
-            textInput: {
-              prompt: input.video.prompt,
-            },
-            videoModelKey: modelKey,
-            ...(firstFrameImageMediaId ? { firstFrameImageMediaId } : {}),
-            ...(lastFrameImageMediaId ? { lastFrameImageMediaId } : {}),
-          },
-        ],
-      },
-    ] as const,
+    [endpoint, input.accessToken, body] as const,
   );
 
-  if (result.status === 401 || result.status === 403) throw new Error("FLOW_REAUTH_REQUIRED");
+  // Helpful for live diagnosis (no tokens; body may include opaque error text only).
+  try {
+    const preview = result.raw.replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 240);
+    process.stderr.write(`flow_video_upstream status=${result.status} preview=${preview}\n`);
+  } catch {
+    /* ignore */
+  }
+
+  if (result.status === 401 || result.status === 403) {
+    // Keep distinct from permanent reauth so a bad payload does not kill the pool.
+    throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}`);
+  }
   if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
   if (result.status < 200 || result.status >= 300) {
-    throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}`);
+    let detail = "";
+    try {
+      const parsed = JSON.parse(result.raw) as { error?: { message?: string } };
+      detail = parsed.error?.message ? ` ${parsed.error.message.slice(0, 120)}` : "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}${detail}`);
   }
 
   let operations: string[] = [];
@@ -140,7 +170,6 @@ export async function createFlowVideoJob(input: {
     operations = [];
   }
   if (operations.length === 0) {
-    // Keep a synthetic operation id so poller state is durable even if payload evolves.
     operations = [`synthetic-op-${randomUUID()}`];
   }
 

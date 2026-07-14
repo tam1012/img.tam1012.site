@@ -72,7 +72,8 @@ export function registerVideoRoutes(
         accessToken: session.accessToken,
         projectId: account.projectId,
         siteKey: account.siteKey || deps.config.recaptchaSiteKey!,
-        action: deps.config.recaptchaAction,
+        // Video always uses VIDEO_GENERATION; do not inherit image action.
+        action: "VIDEO_GENERATION",
         video,
       });
       await browser.persist().catch(() => undefined);
@@ -98,8 +99,12 @@ export function registerVideoRoutes(
         : message.includes("FLOW_INVALID_REQUEST")
           ? 400
           : 502;
+      const code = message.startsWith("FLOW_") ? message.split(" ")[0] : "FLOW_UPSTREAM_REJECTED";
       return reply.code(status).send({
-        error: { message: message.split(" ")[0], code: message.split(" ")[0] },
+        error: {
+          message: message.replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 220),
+          code,
+        },
       });
     } finally {
       if (leaseAccountId) deps.scheduler.release(leaseAccountId);
