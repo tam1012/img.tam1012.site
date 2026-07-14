@@ -9,7 +9,15 @@ import { readSession } from "../flow/session-broker.js";
 import { requireApiKey } from "./auth.js";
 
 const imageRequest = z.object({
-  model: z.enum(["flow-nano-banana-2", "NARWHAL"]).default("flow-nano-banana-2"),
+  model: z
+    .enum([
+      "flow-nano-banana-2",
+      "flow-nano-banana-pro",
+      "NARWHAL",
+      "GEM_PIX_2",
+      "HARBOR_SEAL",
+    ])
+    .default("flow-nano-banana-2"),
   prompt: z.string().min(1).max(20_000),
   size: z.string().default("1024x1024"),
   n: z.number().int().min(1).max(4).default(1),

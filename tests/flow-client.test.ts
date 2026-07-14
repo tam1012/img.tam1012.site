@@ -2,13 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import { createFlowVideoViaRoute, generateFlowImageViaRoute } from "@/lib/flow-client";
 
 describe("flow client", () => {
-  it("calls image generations with resolved route", async () => {
+  it("calls image generations with resolved route and provider model", async () => {
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       json: async () => ({ data: [{ b64_json: "aaa" }] }),
     }));
     const images = await generateFlowImageViaRoute({
       prompt: "apple",
+      model: "flow-nano-banana-pro",
+      aspectRatio: "16:9",
       env: {
         FLOW_IMAGE_ROUTE: "direct",
         FLOW_BRIDGE_BASE_URL: "http://bridge.local/v1",
@@ -22,6 +24,9 @@ describe("flow client", () => {
     const [url, init] = firstCall;
     expect(url).toBe("http://bridge.local/v1/images/generations");
     expect(String((init.headers as Record<string, string>).Authorization)).toContain("Bearer");
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe("flow-nano-banana-pro");
+    expect(body.size).toBe("1792x1024");
   });
 
   it("fails closed when disabled", async () => {

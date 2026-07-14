@@ -7,14 +7,53 @@ export const FLOW_IMAGE_ENDPOINT =
 
 export type ImageSize = "1024x1024" | "1024x1792" | "1792x1024" | string;
 
-export function mapImageModel(model: string): "NARWHAL" {
-  if (model === "flow-nano-banana-2" || model === "NARWHAL") return "NARWHAL";
+export type FlowImageModelName = "NARWHAL" | "GEM_PIX_2" | "HARBOR_SEAL";
+
+export function mapImageModel(model: string): FlowImageModelName {
+  const m = model.trim().toLowerCase();
+  // Nano Banana 2 / Gemini 3.1 Flash Image
+  if (
+    m === "flow-nano-banana-2" ||
+    m === "narwhal" ||
+    m === "nano-banana-2" ||
+    m === "nano_banana_2"
+  ) {
+    return "NARWHAL";
+  }
+  // Nano Banana Pro / Gemini 3 Pro Image (Precise Mode in Flow UI)
+  if (
+    m === "flow-nano-banana-pro" ||
+    m === "gem_pix_2" ||
+    m === "gem-pix-2" ||
+    m === "nano-banana-pro" ||
+    m === "nano_banana_pro" ||
+    m === "harbor_seal" ||
+    m === "harbor-seal"
+  ) {
+    return "GEM_PIX_2";
+  }
   throw new Error("FLOW_INVALID_REQUEST");
 }
 
 export function mapAspectRatio(size: ImageSize): string {
-  if (size === "1024x1792" || size === "9:16") return "IMAGE_ASPECT_RATIO_PORTRAIT";
-  if (size === "1792x1024" || size === "16:9") return "IMAGE_ASPECT_RATIO_LANDSCAPE";
+  const s = String(size || "").trim();
+  if (s === "1024x1792" || s === "9:16" || s === "3:4" || s === "2:3") {
+    return "IMAGE_ASPECT_RATIO_PORTRAIT";
+  }
+  if (s === "1792x1024" || s === "16:9" || s === "4:3" || s === "3:2") {
+    return "IMAGE_ASPECT_RATIO_LANDSCAPE";
+  }
+  if (s === "1:1" || s === "1024x1024") {
+    return "IMAGE_ASPECT_RATIO_SQUARE";
+  }
+  // Fallback: width x height
+  const m = s.match(/^(\d+)x(\d+)$/i);
+  if (m) {
+    const w = Number(m[1]);
+    const h = Number(m[2]);
+    if (h > w) return "IMAGE_ASPECT_RATIO_PORTRAIT";
+    if (w > h) return "IMAGE_ASPECT_RATIO_LANDSCAPE";
+  }
   return "IMAGE_ASPECT_RATIO_SQUARE";
 }
 

@@ -5,7 +5,7 @@ import { logRequestStart, logRequestComplete, logRequestFailed, markRequestLogIm
 export interface ProviderConfig {
   id: string;
   name: string;
-  api_type: "openai" | "gemini" | "vertex" | "chatgpt_bridge";
+  api_type: "openai" | "gemini" | "vertex" | "chatgpt_bridge" | "flow";
   base_url: string;
   api_key: string;
   model: string;
@@ -59,7 +59,10 @@ type ImageCreateInput = {
 };
 
 function normalizeApiType(value: string): ProviderConfig["api_type"] {
-  return value === "gemini" || value === "vertex" || value === "chatgpt_bridge" ? value : "openai";
+  if (value === "gemini" || value === "vertex" || value === "chatgpt_bridge" || value === "flow") {
+    return value;
+  }
+  return "openai";
 }
 
 function providerToConfig(provider: {

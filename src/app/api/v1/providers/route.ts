@@ -3,6 +3,11 @@ import { requireUserFromRequest } from "@/lib/auth";
 import { maxResolutionForProvider } from "@/lib/image-options";
 import { listProviders } from "@/lib/db";
 
+function isFlowImageEnabled(): boolean {
+  const route = (process.env.FLOW_IMAGE_ROUTE || "disabled").trim();
+  return route === "direct" || route === "cpa";
+}
+
 export async function GET(req: NextRequest) {
   const user = await requireUserFromRequest(req);
   if (!user) {
@@ -14,6 +19,9 @@ export async function GET(req: NextRequest) {
     providers = providers.filter((p) => p.api_type !== "chatgpt_bridge" && p.enabled !== false);
   } else {
     providers = providers.filter((p) => p.enabled !== false);
+  }
+  if (!isFlowImageEnabled()) {
+    providers = providers.filter((p) => p.api_type !== "flow");
   }
 
   return NextResponse.json({

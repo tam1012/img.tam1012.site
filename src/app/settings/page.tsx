@@ -78,7 +78,7 @@ export default function SettingsPage() {
       return;
     }
     const existing = editingId ? providers.find((provider) => provider.id === editingId) : null;
-    const needsNewKey = form.api_type !== "vertex" && (
+    const needsNewKey = form.api_type !== "vertex" && form.api_type !== "flow" && (
       !editingId
       || !existing
       || existing.api_type === "vertex"
@@ -177,10 +177,22 @@ export default function SettingsPage() {
                       )}
                     </div>
                     <p className="text-sm text-zinc-500 mt-1">
-                      {p.api_type === "vertex" ? "Google Vertex AI" : p.api_type === "gemini" ? "Gemini" : p.api_type === "chatgpt_bridge" ? "ChatGPT Web Bridge" : "OpenAI"} · {p.model}
+                      {p.api_type === "vertex"
+                        ? "Google Vertex AI"
+                        : p.api_type === "gemini"
+                          ? "Gemini"
+                          : p.api_type === "chatgpt_bridge"
+                            ? "ChatGPT Web Bridge"
+                            : p.api_type === "flow"
+                              ? "Google Flow Bridge"
+                              : "OpenAI"} · {p.model}
                     </p>
                     <p className="mt-0.5 text-xs text-zinc-600">
-                      {p.api_type === "vertex" ? "Service account lưu trên server" : "Thông tin xác thực: ••••••••"}
+                      {p.api_type === "vertex"
+                        ? "Service account lưu trên server"
+                        : p.api_type === "flow"
+                          ? "Credential qua env FLOW_BRIDGE_* / FLOW_IMAGE_ROUTE"
+                          : "Thông tin xác thực: ••••••••"}
                     </p>
                     {p.base_url && (
                       <p className="text-xs text-zinc-600 mt-0.5 truncate">{p.base_url}</p>
@@ -244,6 +256,7 @@ export default function SettingsPage() {
                   <option value="gemini">Google Gemini</option>
                   <option value="vertex">Google Vertex AI</option>
                   <option value="chatgpt_bridge">ChatGPT Web Bridge</option>
+                  <option value="flow">Google Flow Bridge</option>
                 </select>
               </div>
             </div>
@@ -260,8 +273,17 @@ export default function SettingsPage() {
               </div>
             )}
 
+            {form.api_type === "flow" && (
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-500">
+                Flow dùng env <code className="text-zinc-400">FLOW_IMAGE_ROUTE</code> +{" "}
+                <code className="text-zinc-400">FLOW_BRIDGE_*</code> trên server. Model gợi ý:{" "}
+                <code className="text-zinc-400">flow-nano-banana-2</code>,{" "}
+                <code className="text-zinc-400">flow-nano-banana-pro</code>.
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {form.api_type !== "vertex" ? (
+              {form.api_type !== "vertex" && form.api_type !== "flow" ? (
                 <div>
                   <label className="block text-xs text-zinc-500 mb-1.5">{form.api_type === "chatgpt_bridge" ? "Token bridge" : "API Key"}</label>
                   <input
@@ -272,9 +294,13 @@ export default function SettingsPage() {
                     className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
                   />
                 </div>
-              ) : (
+              ) : form.api_type === "vertex" ? (
                 <div className="sm:col-span-1 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-500">
                   Vertex AI dùng service account JSON trên server, không nhập API key ở đây.
+                </div>
+              ) : (
+                <div className="sm:col-span-1 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-500">
+                  Flow không cần API key trong form provider.
                 </div>
               )}
               <div>

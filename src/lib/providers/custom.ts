@@ -4,6 +4,7 @@ import OpenAI, { toFile } from "openai";
 import { GoogleGenAI } from "@google/genai";
 import type { ProviderConfig } from "../db";
 import { XAI_BASE_URL, runWithXaiAccount, xaiAuthPool } from "../xai-auth-pool";
+import { generateFlowImageViaRoute } from "../flow-client";
 
 export interface GenerateParams {
   prompt: string;
@@ -159,6 +160,9 @@ export async function generateImage(config: ProviderConfig, params: GeneratePara
   if (config.api_type === "chatgpt_bridge") {
     return bridgeGenerate(config, params);
   }
+  if (config.api_type === "flow") {
+    return flowGenerate(config, params);
+  }
   if (config.api_type === "gemini") {
     return geminiGenerate(config, params);
   }
@@ -172,6 +176,9 @@ export async function editImage(config: ProviderConfig, params: EditParams): Pro
   if (config.api_type === "chatgpt_bridge") {
     throw new Error("Provider ChatGPT Web Bridge chưa hỗ trợ chỉnh sửa ảnh.");
   }
+  if (config.api_type === "flow") {
+    throw new Error("Provider Google Flow chưa hỗ trợ chỉnh sửa ảnh trong phiên bản này.");
+  }
   if (config.api_type === "gemini") {
     return geminiEdit(config, params);
   }
@@ -179,6 +186,25 @@ export async function editImage(config: ProviderConfig, params: EditParams): Pro
     return vertexEdit(config, params);
   }
   return openaiEdit(config, params);
+}
+
+// ── Google Flow Media Bridge ─────────────────────────────────
+
+async function flowGenerate(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage[]> {
+  const count = Math.min(Math.max(params.count || 1, 1), 4);
+  const images = await generateFlowImageViaRoute({
+    prompt: params.prompt,
+    model: config.model,
+    aspectRatio: params.aspectRatio,
+    width: params.width,
+    height: params.height,
+    n: count,
+  });
+  return images.map((img) => ({
+    data: Buffer.from(img.b64_json, "base64"),
+    mimeType: "image/png",
+    model: config.model,
+  }));
 }
 
 // ── ChatGPT Web Bridge ────────────────────────────────────

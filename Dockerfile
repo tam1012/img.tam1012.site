@@ -34,4 +34,4 @@ ENV DATA_DIR=/data
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3456
 EXPOSE 3456
-CMD ["sh", "-c", "node scripts/check-env.js && npx prisma migrate deploy && node scripts/seed-admin.js && if [ -f /data/db.json ] && [ ! -f /data/.db-json-imported ]; then node scripts/migrate-db-json-to-postgres.js /data/db.json && touch /data/.db-json-imported; fi && node server.js"]
+CMD ["sh", "-c", "node scripts/check-env.js && npx prisma migrate deploy && node scripts/seed-admin.js && node scripts/seed-flow-providers.js && if [ -f /data/db.json ] && [ ! -f /data/.db-json-imported ]; then node scripts/migrate-db-json-to-postgres.js /data/db.json && touch /data/.db-json-imported; fi && node server.js"]

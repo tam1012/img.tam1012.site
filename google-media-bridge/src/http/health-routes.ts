@@ -24,6 +24,7 @@ export function registerHealthRoutes(
       object: "list",
       data: [
         { id: "flow-nano-banana-2", object: "model", owned_by: "google-flow-bridge" },
+        { id: "flow-nano-banana-pro", object: "model", owned_by: "google-flow-bridge" },
         { id: "flow-video-fast-4s", object: "model", owned_by: "google-flow-bridge" },
       ],
     };

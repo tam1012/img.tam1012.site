@@ -18,6 +18,7 @@ function isOpenAICompatModelFamily(model: string, family: "gemini" | "imagen") {
 
 export function maxEditImagesForProvider(provider: ProviderConfig) {
   if (provider.api_type === "chatgpt_bridge") return 0;
+  if (provider.api_type === "flow") return 0;
   if (provider.api_type !== "openai") return 8;
   if (isOpenAICompatModelFamily(provider.model, "gemini")) return 8;
   if (/gpt-image/i.test(provider.model)) return 8;
@@ -27,6 +28,7 @@ export function maxEditImagesForProvider(provider: ProviderConfig) {
 /** Độ phân giải tối đa UI được phép hiện cho provider này. */
 export function maxResolutionForProvider(provider: ProviderConfig): "2K" | "4K" {
   const model = provider.model || "";
+  if (provider.api_type === "flow") return "2K";
   if (/grok-imagine-image/i.test(model) || model.toLowerCase().includes("wan2.7-image")) {
     return "2K";
   }

@@ -3,7 +3,13 @@ import { requireAdmin } from "@/lib/auth";
 import { getProviderById, updateProvider, deleteProvider, ProviderConfig } from "@/lib/db";
 
 function isApiType(value: string): value is ProviderConfig["api_type"] {
-  return value === "openai" || value === "gemini" || value === "vertex" || value === "chatgpt_bridge";
+  return (
+    value === "openai" ||
+    value === "gemini" ||
+    value === "vertex" ||
+    value === "chatgpt_bridge" ||
+    value === "flow"
+  );
 }
 
 export async function PUT(
@@ -45,6 +51,10 @@ export async function PUT(
       }
       if (!nextApiKey) return NextResponse.json({ error: "Provider ChatGPT Web Bridge cần token." }, { status: 400 });
       if (!nextBaseUrl) return NextResponse.json({ error: "Provider ChatGPT Web Bridge cần Base URL." }, { status: 400 });
+    } else if (nextApiType === "flow") {
+      // Flow dùng env FLOW_BRIDGE_* — không bắt buộc api_key trong provider.
+      updates.api_key = "";
+      updates.base_url = "";
     } else if (nextApiType !== "vertex" && !nextApiKey) {
       return NextResponse.json({ error: "Provider không phải Vertex thì bắt buộc có API key thật" }, { status: 400 });
     }

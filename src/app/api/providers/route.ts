@@ -39,7 +39,18 @@ function adminProvider(p: ProviderConfig) {
 }
 
 function isApiType(value: string): value is ProviderConfig["api_type"] {
-  return value === "openai" || value === "gemini" || value === "vertex" || value === "chatgpt_bridge";
+  return (
+    value === "openai" ||
+    value === "gemini" ||
+    value === "vertex" ||
+    value === "chatgpt_bridge" ||
+    value === "flow"
+  );
+}
+
+function isFlowImageEnabled(): boolean {
+  const route = (process.env.FLOW_IMAGE_ROUTE || "disabled").trim();
+  return route === "direct" || route === "cpa";
 }
 
 export async function GET() {
@@ -52,6 +63,10 @@ export async function GET() {
   // Bridge chỉ dành cho admin — user thường không thấy trong dropdown.
   if (user.role !== "admin") {
     providers = providers.filter((p) => p.api_type !== "chatgpt_bridge");
+  }
+  // Flow providers chỉ hiện khi route ảnh đã bật.
+  if (!isFlowImageEnabled()) {
+    providers = providers.filter((p) => p.api_type !== "flow");
   }
 
   const payload = user.role === "admin"
@@ -76,6 +91,8 @@ export async function POST(req: NextRequest) {
     if (apiType === "chatgpt_bridge") {
       if (!api_key?.trim()) return NextResponse.json({ error: "Provider ChatGPT Web Bridge cần token." }, { status: 400 });
       if (!base_url?.trim()) return NextResponse.json({ error: "Provider ChatGPT Web Bridge cần Base URL." }, { status: 400 });
+    } else if (apiType === "flow") {
+      // Flow dùng env FLOW_BRIDGE_* / FLOW_CPA_* — không bắt buộc key trong provider.
     } else if (apiType !== "vertex" && !api_key?.trim()) {
       return NextResponse.json({ error: "Vui lòng nhập API key" }, { status: 400 });
     }
