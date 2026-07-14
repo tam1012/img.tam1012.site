@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1.7
 FROM node:22-bookworm-slim AS build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -21,7 +24,10 @@ ENV NODE_ENV=production \
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-RUN mkdir -p /data && chown -R flowbridge:flowbridge /data /app
-USER 1002:1002
+COPY scripts/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh \
+  && mkdir -p /data \
+  && chown -R flowbridge:flowbridge /data /app
 EXPOSE 8460
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["node", "dist/server.js"]
