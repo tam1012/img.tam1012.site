@@ -12,6 +12,7 @@ import {
   maxEditImagesForProvider,
   normalizeIdempotencyKey,
   validateImageOptions,
+  detectAspectRatio,
 } from "@/lib/image-options";
 import { editImage, computePixelSize } from "@/lib/providers";
 import { getImagePriceVnd } from "@/lib/pricing";
@@ -68,7 +69,7 @@ export async function editSingleImage(
   input: EditSingleInput,
 ): Promise<EditSingleResult> {
   const prompt = input.prompt?.trim() || "";
-  const aspectRatio = input.aspectRatio || "1:1";
+  const rawAspect = (input.aspectRatio || "auto").trim() || "auto";
   const resolution = input.resolution || "1K";
   const quality = input.quality || "standard";
   const clientKey = normalizeIdempotencyKey(input.clientKey);
@@ -99,12 +100,23 @@ export async function editSingleImage(
     };
   }
 
+  // Need source images before auto ratio detection.
+  if (!input.images || input.images.length === 0) {
+    return { ok: false, status: 400, error: "Vui lòng chọn ảnh gốc" };
+  }
+
+  let aspectRatio = rawAspect;
+  if (aspectRatio === "auto") {
+    try {
+      aspectRatio = await detectAspectRatio(input.images[0].buffer);
+    } catch {
+      aspectRatio = "1:1";
+    }
+  }
+
   const optionError = validateImageOptions(aspectRatio, resolution, quality);
   if (optionError) {
     return { ok: false, status: 400, error: optionError };
-  }
-  if (!input.images || input.images.length === 0) {
-    return { ok: false, status: 400, error: "Vui lòng chọn ảnh gốc" };
   }
   const uploadSize = input.images.reduce((sum, img) => sum + img.buffer.length, 0);
   if (uploadSize > MAX_EDIT_UPLOAD_BYTES) {

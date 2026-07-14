@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const imageEntries = formData.getAll("images") as File[];
   const prompt = formData.get("prompt") as string;
   const providerId = (formData.get("provider_id") as string) || (formData.get("providerId") as string);
-  const aspectRatio = (formData.get("aspect_ratio") as string) || "1:1";
+  const aspectRatio = (formData.get("aspect_ratio") as string) || "auto";
   const resolution = (formData.get("resolution") as string) || "1K";
   const quality = (formData.get("quality") as string) || "standard";
   const clientKey = normalizeIdempotencyKey(

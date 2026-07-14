@@ -54,7 +54,7 @@ export default function EditPage() {
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [aspectRatio, setAspectRatio] = useState("auto");
   const [resolution, setResolution] = useState("1K");
   const [quality, setQuality] = useState("high");
   const [loading, setLoading] = useState(false);
@@ -321,6 +321,7 @@ export default function EditPage() {
                   </select>
                 </label>
                 <Select label="Tỷ lệ" value={aspectRatio} onChange={setAspectRatio} options={[
+                  { value: "auto", label: "Tự động" },
                   { value: "1:1", label: "Vuông (1:1)" },
                   { value: "3:2", label: "Ngang (3:2)" },
                   { value: "4:3", label: "Ngang cổ điển (4:3)" },
