@@ -18,7 +18,8 @@ describe("flow client", () => {
     });
     expect(images).toEqual([{ b64_json: "aaa" }]);
     expect(fetchImpl).toHaveBeenCalledOnce();
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const firstCall = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = firstCall;
     expect(url).toBe("http://bridge.local/v1/images/generations");
     expect(String((init.headers as Record<string, string>).Authorization)).toContain("Bearer");
   });
