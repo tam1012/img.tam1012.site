@@ -376,21 +376,18 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
     }
   }
 
-  if (params.images.length > 1) {
-    throw new Error("OpenAI chỉ hỗ trợ chỉnh sửa 1 ảnh. Vui lòng chọn provider Gemini để ghép nhiều ảnh.");
-  }
-  const img = params.images[0];
-
   if (isGrokImagineImageModel(config.model)) {
     return grokDirectEdit(config.model, params);
   }
 
   try {
-    const file = await toFile(img.buffer, "image.png", { type: "image/png" });
+    const files = await Promise.all(
+      params.images.map((img) => toFile(img.buffer, "image.png", { type: "image/png" }))
+    );
     const prefix = buildImageInstructionPrefix(params);
     const response = await client.images.edit({
       model: config.model,
-      image: file,
+      image: files.length === 1 ? files[0] : files,
       prompt: `${prefix}${params.prompt}`,
       size: `${params.width}x${params.height}` as "1024x1024",
       quality: params.quality === "high" ? "high" : "medium",

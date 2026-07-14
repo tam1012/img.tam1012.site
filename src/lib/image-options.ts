@@ -19,7 +19,9 @@ function isOpenAICompatModelFamily(model: string, family: "gemini" | "imagen") {
 export function maxEditImagesForProvider(provider: ProviderConfig) {
   if (provider.api_type === "chatgpt_bridge") return 0;
   if (provider.api_type !== "openai") return 8;
-  return isOpenAICompatModelFamily(provider.model, "gemini") ? 8 : 1;
+  if (isOpenAICompatModelFamily(provider.model, "gemini")) return 8;
+  if (/gpt-image/i.test(provider.model)) return 8;
+  return 1;
 }
 
 /** Độ phân giải tối đa UI được phép hiện cho provider này. */
