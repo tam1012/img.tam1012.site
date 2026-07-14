@@ -10,16 +10,17 @@
 - Compose: `img-studio` + `img-studio-db`; PostgreSQL 16, Prisma, filesystem `/data`.
 - Generation hiện chạy synchronous trong API route; không có background worker/ImageJob runtime.
 
-## Public API v1 (MVP — tạo ảnh)
+## Public API v1 (tạo + chỉnh sửa ảnh)
 
 - User active tạo/thu hồi API key tại `/billing` (UI `ApiKeysPanel`); tối đa 5 key active/user.
 - Key format `img_…`; DB chỉ lưu SHA-256 hash + prefix mask; plain key hiện 1 lần lúc tạo.
 - Auth: `Authorization: Bearer <key>` qua `requireUserFromRequest` (ưu tiên Bearer, fallback cookie session).
 - Middleware cho phép `/api/v1/*` không cần cookie.
-- Endpoints: `GET /api/v1/providers`, `POST /api/v1/images/generate` (count=1), `GET /api/v1/images/:id`, `GET /api/v1/images/:id/file`.
-- Generate dùng shared helper `src/lib/generate-image.ts` (web `/api/generate` count=1 cũng gọi chung).
-- Idempotency-Key bắt buộc; rate limit generate 20/phút/user; giá = web.
-- Chưa có: edit/video/batch/webhook async.
+- Endpoints: `GET /api/v1/providers`, `POST /api/v1/images/generate` (count=1), `POST /api/v1/images/edit` (multipart, 1 ảnh ra), `GET /api/v1/images/:id`, `GET /api/v1/images/:id/file`.
+- Generate dùng shared helper `src/lib/generate-image.ts`; edit dùng `src/lib/edit-image.ts` (web `/api/edit` và `/api/generate` count=1 cũng gọi chung lõi).
+- Edit nhận `multipart/form-data` (field `images` nhiều file, `prompt`, `provider_id`, `aspect_ratio`, `resolution`, `quality`); giới hạn tổng upload 9.5MB, số ảnh gốc theo provider (gpt-image/gemini 8, còn lại 1); chatgpt_bridge chưa hỗ trợ.
+- Idempotency-Key bắt buộc (generate + edit, đều atomic qua `createImageRecordOnce`); rate limit 20/phút/user; giá = web.
+- Chưa có: video/batch/webhook async.
 - Docs user (login): `/docs/api`. Bản repo: `docs/public-api-v1.md`.
 
 ## Prompt Refine

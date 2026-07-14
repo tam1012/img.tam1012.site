@@ -34,10 +34,10 @@ export default function ApiDocsPage() {
               ← Nạp tiền / API key
             </Link>
           </p>
-          <h1 className="text-lg font-semibold text-zinc-100">Hướng dẫn API v1 — Tạo ảnh</h1>
+          <h1 className="text-lg font-semibold text-zinc-100">Hướng dẫn API v1 — Tạo &amp; chỉnh sửa ảnh</h1>
           <p className="text-sm text-zinc-400 leading-relaxed">
-            Dùng cho n8n, Make, script hoặc tool ngoài. Hiện chỉ hỗ trợ <strong className="text-zinc-300">tạo 1 ảnh mỗi request</strong>.
-            Chỉnh sửa ảnh và tạo video qua API sẽ làm sau.
+            Dùng cho n8n, Make, script hoặc tool ngoài. Hỗ trợ <strong className="text-zinc-300">tạo 1 ảnh</strong> và{" "}
+            <strong className="text-zinc-300">chỉnh sửa 1 ảnh</strong> mỗi request. Tạo video qua API sẽ làm sau.
           </p>
           <p className="text-sm text-zinc-500">
             Base URL: <Inline>{BASE}</Inline>
@@ -157,6 +157,63 @@ Idempotency-Key: <chuỗi duy nhất, tối đa 120 ký tự>`}</Code>
             </div>
 
             <div className="space-y-2">
+              <p className="text-sm text-zinc-200 font-medium">Chỉnh sửa ảnh</p>
+              <p className="text-xs text-zinc-500">
+                Gửi <strong className="text-zinc-300">multipart/form-data</strong> (không phải JSON) vì có kèm file ảnh gốc.
+              </p>
+              <Code>{`POST ${BASE}/api/v1/images/edit
+Authorization: Bearer <API_KEY>
+Content-Type: multipart/form-data
+Idempotency-Key: <chuỗi duy nhất, tối đa 120 ký tự>`}</Code>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-zinc-400">
+                  <thead>
+                    <tr className="border-b border-zinc-800 text-zinc-500">
+                      <th className="py-2 pr-3 font-medium">Field (form)</th>
+                      <th className="py-2 pr-3 font-medium">Bắt buộc</th>
+                      <th className="py-2 font-medium">Ghi chú</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/80">
+                    <tr>
+                      <td className="py-2 pr-3 text-zinc-300">images</td>
+                      <td className="py-2 pr-3">Có</td>
+                      <td className="py-2">1 hoặc nhiều file ảnh gốc (tuỳ model). Tổng ≤ 9.5MB / request</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3 text-zinc-300">prompt</td>
+                      <td className="py-2 pr-3">Có</td>
+                      <td className="py-2">Mô tả cách chỉnh sửa</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3 text-zinc-300">provider_id</td>
+                      <td className="py-2 pr-3">Có</td>
+                      <td className="py-2">Lấy từ /api/v1/providers</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3 text-zinc-300">aspect_ratio</td>
+                      <td className="py-2 pr-3">Không</td>
+                      <td className="py-2">Mặc định 1:1</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3 text-zinc-300">resolution</td>
+                      <td className="py-2 pr-3">Không</td>
+                      <td className="py-2">Mặc định 1K (một số model chỉ tới 2K)</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 pr-3 text-zinc-300">quality</td>
+                      <td className="py-2 pr-3">Không</td>
+                      <td className="py-2">standard hoặc high</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-zinc-500">
+                Số ảnh gốc tối đa tuỳ model (gpt-image / gemini tới 8, còn lại 1). Response giống tạo ảnh.
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <p className="text-sm text-zinc-200 font-medium">Metadata &amp; file ảnh</p>
               <Code>{`GET ${BASE}/api/v1/images/{id}
 GET ${BASE}/api/v1/images/{id}/file
@@ -186,7 +243,16 @@ curl -s ${BASE}/api/v1/images/generate \\
 # Tải file
 curl -L "${BASE}/api/v1/images/IMAGE_ID/file" \\
   -H "Authorization: Bearer img_YOUR_KEY" \\
-  -o out.webp`}</Code>
+  -o out.webp
+
+# Chỉnh sửa ảnh (multipart, kèm file gốc)
+curl -s ${BASE}/api/v1/images/edit \\
+  -H "Authorization: Bearer img_YOUR_KEY" \\
+  -H "Idempotency-Key: edit-001" \\
+  -F "images=@input.png" \\
+  -F "prompt=đổi nền thành bãi biển hoàng hôn" \\
+  -F "provider_id=PASTE_PROVIDER_ID" \\
+  -F "resolution=1K"`}</Code>
         </Section>
 
         <Section title="5. n8n (gợi ý nhanh)">
@@ -242,6 +308,10 @@ curl -L "${BASE}/api/v1/images/IMAGE_ID/file" \\
                   <td className="py-2">Provider / ảnh không tồn tại</td>
                 </tr>
                 <tr>
+                  <td className="py-2 pr-3 text-zinc-300">413</td>
+                  <td className="py-2">Ảnh gốc chỉnh sửa quá lớn (tổng &gt; 9.5MB)</td>
+                </tr>
+                <tr>
                   <td className="py-2 pr-3 text-zinc-300">409</td>
                   <td className="py-2">Idempotency-Key trùng request đã fail — dùng key mới</td>
                 </tr>
@@ -263,7 +333,8 @@ curl -L "${BASE}/api/v1/images/IMAGE_ID/file" \\
             <li>Giá mỗi ảnh thành công = giá trên web (mặc định 100đ)</li>
             <li>Tài khoản admin không bị trừ tiền</li>
             <li>Provider lỗi sau khi trừ → hệ thống cố hoàn tiền</li>
-            <li>Chưa hỗ trợ: edit, video, batch nhiều ảnh, webhook báo xong</li>
+            <li>Chỉnh sửa ảnh: tính giá và hoàn tiền y hệt tạo ảnh</li>
+            <li>Chưa hỗ trợ: video, batch nhiều ảnh, webhook báo xong</li>
           </ul>
         </Section>
 

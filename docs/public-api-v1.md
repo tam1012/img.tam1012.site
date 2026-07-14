@@ -1,6 +1,6 @@
-# Public API v1 — Tạo ảnh (MVP)
+# Public API v1 — Tạo & chỉnh sửa ảnh
 
-> Dành cho automation (n8n, Make, script). Chỉ hỗ trợ **tạo 1 ảnh / request**. Edit ảnh và video sẽ làm sau.
+> Dành cho automation (n8n, Make, script). Hỗ trợ **tạo 1 ảnh** và **chỉnh sửa 1 ảnh** mỗi request. Video sẽ làm sau.
 
 **Trang user (đăng nhập):** `https://imgstudio.site/docs/api` — bản đọc trên web, link từ `/billing` và menu tài khoản.
 
@@ -105,14 +105,43 @@ Response thành công `200`:
 
 URL file là path tương đối. Full URL: `https://imgstudio.site` + `url`.
 
-### 3.3. Metadata ảnh
+### 3.3. Chỉnh sửa ảnh
+
+Khác với tạo ảnh, endpoint này nhận **multipart/form-data** (vì kèm file ảnh gốc), không phải JSON.
+
+```http
+POST /api/v1/images/edit
+Authorization: Bearer <API_KEY>
+Content-Type: multipart/form-data
+Idempotency-Key: <chuỗi duy nhất, tối đa 120 ký tự>
+```
+
+Các field (dạng form field, không phải JSON):
+
+| Field | Bắt buộc | Mặc định | Ghi chú |
+|---|---|---|---|
+| `images` | có | — | 1 hoặc nhiều file ảnh gốc. Gửi nhiều lần cùng tên `images` |
+| `prompt` | có | — | Mô tả cách chỉnh sửa |
+| `provider_id` | có | — | Lấy từ `/api/v1/providers` |
+| `aspect_ratio` | không | `1:1` | Như tạo ảnh |
+| `resolution` | không | `1K` | Một số model chỉ tới `2K` |
+| `quality` | không | `standard` | `standard` hoặc `high` |
+
+- Số ảnh gốc tối đa tuỳ model: `gpt-image` / `gemini` tới 8, các model còn lại 1. Vượt quá trả `400`.
+- Tổng dung lượng ảnh tải lên tối đa **9.5MB / request**, vượt quá trả `413`.
+- Provider ChatGPT Web Bridge chưa hỗ trợ chỉnh sửa (trả `400`).
+- **Idempotency-Key bắt buộc**, cơ chế chống trùng và response giống hệt tạo ảnh (`url` trỏ tới `/api/v1/images/:id/file`).
+
+Ví dụ response `200` giống mục 3.2.
+
+### 3.4. Metadata ảnh
 
 ```http
 GET /api/v1/images/{id}
 Authorization: Bearer <API_KEY>
 ```
 
-### 3.4. File ảnh
+### 3.5. File ảnh
 
 ```http
 GET /api/v1/images/{id}/file
@@ -133,6 +162,7 @@ Cùng key (hoặc admin) mới xem được ảnh của user đó.
 | 402 | Hết tiền ví |
 | 403 | Không có quyền (vd provider admin-only, ảnh người khác) |
 | 404 | Provider / ảnh không tồn tại |
+| 413 | Ảnh gốc chỉnh sửa quá lớn (tổng > 9.5MB) |
 | 409 | Idempotency-Key trùng request đã fail — dùng key mới |
 | 429 | Rate limit (≈20 request tạo ảnh / phút / user) |
 | 500 | Lỗi provider / server (thường đã hoàn tiền nếu đã trừ) |
@@ -161,6 +191,15 @@ curl -s https://imgstudio.site/api/v1/images/generate \
 curl -L "https://imgstudio.site/api/v1/images/IMAGE_ID/file" \
   -H "Authorization: Bearer img_YOUR_KEY" \
   -o out.webp
+
+# 4) Chỉnh sửa ảnh (multipart, kèm file gốc)
+curl -s https://imgstudio.site/api/v1/images/edit \
+  -H "Authorization: Bearer img_YOUR_KEY" \
+  -H "Idempotency-Key: n8n-edit-001" \
+  -F "images=@input.png" \
+  -F "prompt=đổi nền thành bãi biển hoàng hôn" \
+  -F "provider_id=PASTE_PROVIDER_ID" \
+  -F "resolution=1K"
 ```
 
 ## 6. n8n (HTTP Request)
@@ -174,12 +213,15 @@ curl -L "https://imgstudio.site/api/v1/images/IMAGE_ID/file" \
 6. **Timeout:** đặt **120–300 giây** (generate chạy sync, có thể lâu)
 7. Node sau: HTTP Request GET `https://imgstudio.site{{ $json.url }}` với cùng Bearer để lấy binary ảnh
 
+Chỉnh sửa ảnh: cùng cách nhưng URL `.../api/v1/images/edit`, Body dạng **Form-Data / multipart** — field `images` chọn kiểu binary (từ node trước), thêm `prompt`, `provider_id`; không set `Content-Type` thủ công (n8n tự thêm boundary).
+
 ## 7. Giá & giới hạn
 
 - Giá = giá web (`IMAGE_PRICE_VND`, mặc định 100đ / ảnh thành công)
 - Admin không bị trừ tiền
 - Provider lỗi sau khi trừ → hệ thống cố hoàn tiền (như web)
-- Chưa hỗ trợ: edit, video, batch `count>1`, webhook async
+- Chỉnh sửa ảnh: tính giá và hoàn tiền y hệt tạo ảnh
+- Chưa hỗ trợ: video, batch `count>1`, webhook async
 
 ## 8. Bảo mật
 

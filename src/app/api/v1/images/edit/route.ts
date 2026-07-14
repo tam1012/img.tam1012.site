@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth";
-import { normalizeIdempotencyKey } from "@/lib/image-options";
+import { requireUserFromRequest } from "@/lib/auth";
+import { getWalletSummary } from "@/lib/wallet";
 import { isGenerateRateLimited } from "@/lib/rate-limit";
+import { normalizeIdempotencyKey } from "@/lib/image-options";
 import { editSingleImage, MAX_EDIT_UPLOAD_LABEL } from "@/lib/edit-image";
+
+export const maxDuration = 300;
 
 function uploadTooLargeResponse() {
   return NextResponse.json(
@@ -12,9 +15,9 @@ function uploadTooLargeResponse() {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await requireUser();
+  const user = await requireUserFromRequest(req);
   if (!user) {
-    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
+    return NextResponse.json({ error: "API key không hợp lệ hoặc đã thu hồi" }, { status: 401 });
   }
 
   if (isGenerateRateLimited(user.id)) {
@@ -28,12 +31,12 @@ export async function POST(req: NextRequest) {
     if (err instanceof Error && err.message.includes("Failed to parse body as FormData")) {
       return uploadTooLargeResponse();
     }
-    throw err;
+    return NextResponse.json({ error: "Body phải là multipart/form-data" }, { status: 400 });
   }
 
   const imageEntries = formData.getAll("images") as File[];
   const prompt = formData.get("prompt") as string;
-  const providerId = formData.get("provider_id") as string;
+  const providerId = (formData.get("provider_id") as string) || (formData.get("providerId") as string);
   const aspectRatio = (formData.get("aspect_ratio") as string) || "1:1";
   const resolution = (formData.get("resolution") as string) || "1K";
   const quality = (formData.get("quality") as string) || "standard";
@@ -42,6 +45,10 @@ export async function POST(req: NextRequest) {
       (formData.get("idempotency_key") as string) ||
       (formData.get("idempotencyKey") as string),
   );
+
+  if (!clientKey) {
+    return NextResponse.json({ error: "Thiếu header Idempotency-Key" }, { status: 400 });
+  }
 
   const images = await Promise.all(
     (imageEntries || []).map(async (file) => ({
@@ -57,22 +64,35 @@ export async function POST(req: NextRequest) {
     aspectRatio,
     resolution,
     quality,
-    clientKey: clientKey || "",
+    clientKey,
   });
 
   if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: result.status });
+    if (result.code === "processing") {
+      return NextResponse.json(
+        { error: result.error, status: "processing", retry_after_ms: 1500 },
+        { status: 202 },
+      );
+    }
+    return NextResponse.json({ error: result.error, status: result.code || "error" }, { status: result.status });
   }
 
-  const record = result.image;
+  const wallet = await getWalletSummary(user.id);
+  const img = result.image;
+
   return NextResponse.json({
-    id: record.id,
-    url: `/api/images/${record.id}`,
-    prompt: record.prompt,
-    provider_name: record.provider_name,
-    model: record.model,
-    created_at: record.created_at,
-    status: record.status,
-    charged_vnd: result.chargedVnd,
+    id: img.id,
+    status: "completed",
+    prompt: img.prompt,
+    provider_name: img.provider_name,
+    model: img.model,
+    aspect_ratio: img.aspect_ratio,
+    resolution: img.resolution,
+    quality: img.quality,
+    cost_vnd: result.chargedVnd,
+    balance_vnd: wallet.balance_vnd,
+    url: `/api/v1/images/${img.id}/file`,
+    created_at: img.created_at,
+    reused: result.reused,
   });
 }
