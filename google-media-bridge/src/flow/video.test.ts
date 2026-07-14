@@ -34,6 +34,6 @@ describe("video adapter mapping", () => {
     expect(mapVideoEndpoint("text_video")).toContain("batchAsyncGenerateVideoText");
     expect(mapVideoEndpoint("image_video")).toContain("batchAsyncGenerateVideoStartImage");
     expect(mapVideoEndpoint("start_end_video")).toContain("batchAsyncGenerateVideoStartAndEndImage");
-    expect(mapVideoModelKey(4)).toBe("veo_3_0_t2v");
+    expect(mapVideoModelKey(4)).toBe("abra_t2v_4s");
   });
 });

@@ -18,6 +18,9 @@ export type VideoUpstreamState = {
   projectId: string;
   modelKey: string;
   endpoint: string;
+  // Raw operation names/workflows captured from create response for polling.
+  workflows?: string[];
+  rawCreateKeys?: string[];
 };
 
 export function resolveVideoKind(input: CreateVideoInput): JobKind {
@@ -30,9 +33,9 @@ export function resolveVideoKind(input: CreateVideoInput): JobKind {
 }
 
 export function mapVideoModelKey(duration: number): string {
-  // Client usage keys observed in Flow bundle.
-  if (duration <= 4) return "veo_3_0_t2v";
-  return "veo_3_0_t2v";
+  // Captured live from Flow UI text→video create (2026-07-15).
+  if (duration <= 4) return "abra_t2v_4s";
+  return "abra_t2v_4s";
 }
 
 export function mapVideoEndpoint(kind: JobKind): string {
@@ -78,41 +81,45 @@ export async function createFlowVideoJob(input: {
     ? `synthetic-end-${randomUUID()}`
     : undefined;
 
-  const sessionId = randomUUID();
+  const sessionId = `;${Date.now()}`;
   const batchId = randomUUID();
+  // Captured live UI shape (text video):
+  // clientContext: projectId, tool=PINHOLE, userPaygateTier, sessionId, recaptchaContext
+  // mediaGenerationContext: batchId, audioFailurePreference
+  // requests[0]: aspectRatio, textInput.structuredPrompt, videoModelKey, seed, metadata
+  // useV2ModelConfig: true
   const clientContext: Record<string, unknown> = {
+    projectId: input.projectId,
+    tool: "PINHOLE",
+    userPaygateTier: process.env.FLOW_VIDEO_PAYGATE_TIER || "PAYGATE_TIER_ONE",
+    sessionId,
     recaptchaContext: {
       token,
       applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
     },
-    projectId: input.projectId,
-    sessionId,
   };
-  // Tool is optional for some video paths; prefer VIDEO_FX when present in client builds.
-  if (process.env.FLOW_VIDEO_TOOL !== "none") {
-    clientContext.tool = process.env.FLOW_VIDEO_TOOL || "VIDEO_FX";
-  }
 
   const requestItem: Record<string, unknown> = {
     aspectRatio: mapVideoAspect(input.video.aspectRatio),
     textInput: {
-      prompt: input.video.prompt,
-      expandedPrompt: input.video.prompt,
       structuredPrompt: { parts: [{ text: input.video.prompt }] },
     },
     videoModelKey: modelKey,
-    seed: Math.floor(Math.random() * 2_000_000_000),
+    seed: Math.floor(Math.random() * 100_000),
+    metadata: {},
   };
   if (firstFrameImageMediaId) requestItem.firstFrameImageMediaId = firstFrameImageMediaId;
   if (lastFrameImageMediaId) requestItem.lastFrameImageMediaId = lastFrameImageMediaId;
 
   const body: Record<string, unknown> = {
     clientContext,
-    mediaGenerationContext: { batchId },
+    mediaGenerationContext: {
+      batchId,
+      audioFailurePreference: "BLOCK_SILENCED_VIDEOS",
+    },
     requests: [requestItem],
+    useV2ModelConfig: true,
   };
-  // Non-text paths in the client set useV2ModelConfig.
-  if (kind !== "text_video") body.useV2ModelConfig = true;
 
   const result = await input.page.evaluate(
     async ([endpointUrl, bearer, payload]) => {
@@ -155,17 +162,64 @@ export async function createFlowVideoJob(input: {
   }
 
   let operations: string[] = [];
+  let workflows: string[] = [];
+  let rawCreateKeys: string[] = [];
   try {
     const parsed = JSON.parse(result.raw) as {
-      operations?: Array<{ name?: string; operation?: { name?: string } }>;
+      operations?: Array<{ name?: string; operation?: { name?: string } } | string>;
       names?: string[];
+      workflows?: Array<{ name?: string; workflowId?: string }>;
+      media?: Array<Record<string, unknown>> | Record<string, unknown>;
     };
+    rawCreateKeys = Object.keys(parsed);
     operations =
       parsed.operations
-        ?.map((op) => op.name || op.operation?.name || "")
+        ?.map((op) => {
+          if (typeof op === "string") return op;
+          return op.name || op.operation?.name || "";
+        })
         .filter(Boolean) ??
       parsed.names ??
       [];
+    workflows =
+      parsed.workflows
+        ?.map((w) => w.name || w.workflowId || "")
+        .filter(Boolean) ?? [];
+
+    const mediaItems = Array.isArray(parsed.media)
+      ? parsed.media
+      : parsed.media
+        ? [parsed.media]
+        : [];
+    const mediaNames = mediaItems
+      .map((m) =>
+        String(
+          m.name ||
+            m.mediaGenerationId ||
+            m.operationName ||
+            m.workflowId ||
+            "",
+        ),
+      )
+      .filter(Boolean);
+    try {
+      const mediaShape = mediaItems.map((m) => Object.keys(m).sort());
+      process.stderr.write(
+        `flow_video_media_shape=${JSON.stringify(mediaShape)} mediaNames=${mediaNames.length}\n`,
+      );
+    } catch {
+      /* ignore */
+    }
+
+    // Prefer media operation/generation names for status polling; workflow names alone return "Video not found".
+    if (mediaNames.length > 0) {
+      operations = mediaNames;
+    } else if (operations.length === 0 && workflows.length > 0) {
+      operations = [...workflows];
+    }
+    if (workflows.length === 0 && mediaNames.length > 0) {
+      workflows = mediaNames;
+    }
   } catch {
     operations = [];
   }
@@ -173,8 +227,18 @@ export async function createFlowVideoJob(input: {
     operations = [`synthetic-op-${randomUUID()}`];
   }
 
+  try {
+    process.stderr.write(
+      `flow_video_create_keys=${JSON.stringify(rawCreateKeys)} ops=${operations.length} workflows=${workflows.length}\n`,
+    );
+  } catch {
+    /* ignore */
+  }
+
   return {
     operations,
+    workflows,
+    rawCreateKeys,
     projectId: input.projectId,
     modelKey,
     endpoint,
@@ -191,54 +255,203 @@ export async function pollFlowVideoJob(input: {
   accessToken: string;
   upstream: VideoUpstreamState;
 }): Promise<PollVideoResult> {
-  const result = await input.page.evaluate(
-    async ([endpointUrl, bearer, operations]) => {
-      const res = await fetch(endpointUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${bearer}`,
-        },
-        body: JSON.stringify({ operations }),
-      });
-      const raw = await res.text();
-      return { status: res.status, raw };
+  const operations = input.upstream.operations;
+  const workflows = input.upstream.workflows ?? [];
+  // Live Flow UI/status contracts vary; try the common shapes without leaking secrets.
+  const payloads: unknown[] = [
+    { operations },
+    { operations: operations.map((name) => ({ operation: { name } })) },
+    { operations: operations.map((name) => ({ name })) },
+    { operationIds: operations },
+    { names: operations },
+    // Workflow-centric shapes observed via remainingCredits/workflows create responses.
+    { workflows: workflows.map((name) => ({ name })) },
+    { workflowIds: workflows.length ? workflows : operations },
+    {
+      clientContext: { projectId: input.upstream.projectId, tool: "PINHOLE" },
+      operations,
     },
-    [STATUS_ENDPOINT, input.accessToken, input.upstream.operations] as const,
-  );
+    {
+      clientContext: { projectId: input.upstream.projectId, tool: "PINHOLE" },
+      media: (workflows.length ? workflows : operations).map((workflowId) => ({
+        name: workflowId,
+        projectId: input.upstream.projectId,
+      })),
+    },
+  ];
 
-  if (result.status === 401 || result.status === 403) throw new Error("FLOW_REAUTH_REQUIRED");
-  if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
-  if (result.status < 200 || result.status >= 300) {
-    return { status: "failed", error: `status=${result.status}`, progress: 0 };
+  let lastStatus = 0;
+  let lastRaw = "";
+  for (const payload of payloads) {
+    const result = await input.page.evaluate(
+      async ([endpointUrl, bearer, body]) => {
+        const res = await fetch(endpointUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${bearer}`,
+          },
+          body: JSON.stringify(body),
+        });
+        const raw = await res.text();
+        return { status: res.status, raw };
+      },
+      [STATUS_ENDPOINT, input.accessToken, payload] as const,
+    );
+    lastStatus = result.status;
+    lastRaw = result.raw;
+    if (result.status === 401 || result.status === 403) throw new Error("FLOW_REAUTH_REQUIRED");
+    if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
+    if (result.status < 200 || result.status >= 300) continue;
+
+    try {
+      const parsedPreview = JSON.parse(result.raw) as unknown;
+      const keyWalk = (node: unknown, prefix = "", depth = 0): string[] => {
+        if (depth > 3 || !node || typeof node !== "object") return [];
+        if (Array.isArray(node)) {
+          return node.length ? keyWalk(node[0], `${prefix}[]`, depth + 1) : [`${prefix}:[]`];
+        }
+        const out: string[] = [];
+        for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+          const path = prefix ? `${prefix}.${k}` : k;
+          out.push(path);
+          if (v && typeof v === "object") out.push(...keyWalk(v, path, depth + 1));
+        }
+        return out;
+      };
+      process.stderr.write(
+        `flow_video_poll_keys=${JSON.stringify(keyWalk(parsedPreview).slice(0, 80))}\n`,
+      );
+    } catch {
+      process.stderr.write(
+        `flow_video_poll_ok status=${result.status} preview=${result.raw
+          .replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]")
+          .replace(/https:\/\/[^"\\]+/g, "[url]")
+          .slice(0, 280)}\n`,
+      );
+    }
+
+    try {
+      const parsed = JSON.parse(result.raw) as {
+        operations?: Array<{
+          name?: string;
+          status?: string;
+          done?: boolean;
+          error?: { message?: string };
+          operation?: { done?: boolean; error?: { message?: string }; response?: unknown };
+          response?: {
+            video?: { fifeUrl?: string; url?: string };
+            fifeUrl?: string;
+            generatedVideos?: Array<{ fifeUrl?: string; url?: string }>;
+          };
+          metadata?: { status?: string };
+        }>;
+      };
+      const op = parsed.operations?.[0];
+      if (!op) return { status: "pending", progress: 10 };
+
+      const nested = op.operation;
+      const status = String(op.status || op.metadata?.status || "").toUpperCase();
+      const done = Boolean(op.done || nested?.done);
+      const errMsg = op.error?.message || nested?.error?.message;
+      if (
+        errMsg &&
+        (status.includes("FAIL") ||
+          status.includes("ERROR") ||
+          status.includes("MEDIA_GENERATION_STATUS_FAILED") ||
+          done)
+      ) {
+        return { status: "failed", error: errMsg.slice(0, 160), progress: 100 };
+      }
+
+      const response = (op.response || nested?.response || {}) as {
+        video?: { fifeUrl?: string; url?: string };
+        fifeUrl?: string;
+        generatedVideos?: Array<{ fifeUrl?: string; url?: string }>;
+        media?: Array<{ video?: { fifeUrl?: string }; fifeUrl?: string; status?: string }>;
+      };
+      const videoUrl =
+        response.video?.fifeUrl ||
+        response.video?.url ||
+        response.fifeUrl ||
+        response.generatedVideos?.[0]?.fifeUrl ||
+        response.generatedVideos?.[0]?.url ||
+        response.media?.[0]?.video?.fifeUrl ||
+        response.media?.[0]?.fifeUrl ||
+        "";
+
+      const collectUrls = (node: unknown, acc: string[] = [], depth = 0): string[] => {
+        if (depth > 7 || node == null) return acc;
+        if (typeof node === "string") {
+          if (/^https?:\/\//i.test(node)) acc.push(node);
+          return acc;
+        }
+        if (Array.isArray(node)) {
+          for (const item of node) collectUrls(item, acc, depth + 1);
+          return acc;
+        }
+        if (typeof node === "object") {
+          for (const v of Object.values(node as Record<string, unknown>)) {
+            collectUrls(v, acc, depth + 1);
+          }
+        }
+        return acc;
+      };
+      const urls = collectUrls(parsed);
+      let foundUrl =
+        videoUrl ||
+        urls.find((u) => /fife|googlevideo|videoplayback|\.mp4|mh\//i.test(u)) ||
+        "";
+
+      if (
+        status.includes("SUCCESS") ||
+        status.includes("MEDIA_GENERATION_STATUS_SUCCESSFUL") ||
+        (done && foundUrl)
+      ) {
+        if (!foundUrl) return { status: "pending", progress: 90 };
+        return { status: "done", videoUrl: foundUrl, progress: 100 };
+      }
+      // If URL already present and not failed, complete even without explicit SUCCESS.
+      if (foundUrl && !status.includes("FAIL") && !status.includes("ERROR")) {
+        return { status: "done", videoUrl: foundUrl, progress: 100 };
+      }
+      if (done && !foundUrl && !errMsg) {
+        return { status: "pending", progress: 85 };
+      }
+      if (
+        status.includes("ACTIVE") ||
+        status.includes("RUNNING") ||
+        status.includes("MEDIA_GENERATION_STATUS_ACTIVE")
+      ) {
+        return { status: "pending", progress: 60 };
+      }
+      if (
+        status.includes("SCHEDULED") ||
+        status.includes("PENDING") ||
+        status.includes("QUEUED") ||
+        status.includes("MEDIA_GENERATION_STATUS_SCHEDULED") ||
+        status.includes("MEDIA_GENERATION_STATUS_PENDING")
+      ) {
+        return { status: "pending", progress: 25 };
+      }
+      // Unknown but HTTP 200: keep pending rather than fail hard.
+      return { status: "pending", progress: 15 };
+    } catch {
+      return { status: "pending", progress: 5 };
+    }
   }
 
   try {
-    const parsed = JSON.parse(result.raw) as {
-      operations?: Array<{
-        status?: string;
-        done?: boolean;
-        error?: { message?: string };
-        response?: { video?: { fifeUrl?: string }; fifeUrl?: string };
-      }>;
-    };
-    const op = parsed.operations?.[0];
-    if (!op) return { status: "pending", progress: 10 };
-    const status = String(op.status || "").toUpperCase();
-    if (op.error?.message) return { status: "failed", error: op.error.message.slice(0, 160), progress: 100 };
-    if (status.includes("SUCCESS") || op.done) {
-      const videoUrl = op.response?.video?.fifeUrl || op.response?.fifeUrl || "";
-      if (!videoUrl) return { status: "pending", progress: 90 };
-      return { status: "done", videoUrl, progress: 100 };
-    }
-    if (status.includes("ACTIVE")) return { status: "pending", progress: 60 };
-    if (status.includes("SCHEDULED") || status.includes("PENDING")) {
-      return { status: "pending", progress: 25 };
-    }
-    return { status: "pending", progress: 15 };
+    const preview = lastRaw.replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 240);
+    process.stderr.write(`flow_video_poll_upstream status=${lastStatus} preview=${preview}\n`);
   } catch {
-    return { status: "pending", progress: 5 };
+    /* ignore */
   }
+  // Transient poll payload mismatch should not kill the job immediately.
+  return {
+    status: "pending",
+    progress: lastStatus ? 5 : 1,
+  };
 }
 
 export async function downloadVideoToFile(input: {

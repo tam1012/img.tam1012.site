@@ -1,0 +1,59 @@
+{
+  "host": "aisandbox-pa.googleapis.com",
+  "pathTemplate": "/v1/video:batchAsyncGenerateVideoText",
+  "method": "POST",
+  "bodyKeys": [
+    "clientContext",
+    "mediaGenerationContext",
+    "requests",
+    "useV2ModelConfig"
+  ],
+  "nestedShape": {
+    "mediaGenerationContext": {
+      "batchId": "{uuid}",
+      "audioFailurePreference": "BLOCK_SILENCED_VIDEOS"
+    },
+    "clientContext": {
+      "projectId": "{uuid}",
+      "tool": "PINHOLE",
+      "userPaygateTier": "PAYGATE_TIER_ONE",
+      "sessionId": ";{timestamp}",
+      "recaptchaContext": {
+        "token": "[redacted]",
+        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+      }
+    },
+    "requests": [
+      {
+        "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "textInput": {
+          "structuredPrompt": {
+            "parts": [
+              "object"
+            ]
+          }
+        },
+        "videoModelKey": "abra_t2v_4s",
+        "seed": 0,
+        "metadata": {}
+      }
+    ],
+    "useV2ModelConfig": true
+  },
+  "hasRecaptcha": true,
+  "siteKey": "captured",
+  "action": null,
+  "seen": [
+    "POST aisandbox-pa.googleapis.com/v1:checkAppAvailability",
+    "GET aisandbox-pa.googleapis.com/v1/credits",
+    "POST aisandbox-pa.googleapis.com/v1:fetchUserRecommendations",
+    "POST aisandbox-pa.googleapis.com/v1/flow:batchLogFrontendEvents",
+    "GET aisandbox-pa.googleapis.com/v1/flow/likeness:checkEligibility",
+    "GET aisandbox-pa.googleapis.com/v1/flowCreationAgent/sessions",
+    "GET aisandbox-pa.googleapis.com/v1/flowAppletAgent/applets",
+    "GET aisandbox-pa.googleapis.com/v1/flowAppletAgent/savedSharedApplets",
+    "POST aisandbox-pa.googleapis.com/v1/flowCreationAgent/sessions",
+    "GET aisandbox-pa.googleapis.com/v1/flow/models/statuses",
+    "POST aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoText"
+  ]
+}

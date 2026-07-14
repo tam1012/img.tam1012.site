@@ -7,7 +7,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "probe:export": "tsx src/probes/export-session.ts",
-    "probe:meta": "tsx src/probes/read-flow-meta.ts"
+    "probe:meta": "tsx src/probes/read-flow-meta.ts",
+    "probe:video-meta": "tsx src/probes/read-flow-video-meta.ts"
   },
   "dependencies": {
     "fastify": "5.10.0",
