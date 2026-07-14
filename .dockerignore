@@ -27,6 +27,12 @@ plans
 README.md
 AGENTS.md
 
+# Separate Flow packages (own Dockerfiles / local tooling)
+google-media-bridge
+google-flow-enroller
+ops
+tmp
+
 # Misc
 npm-debug.log*
 yarn-debug.log*
