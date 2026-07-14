@@ -1,0 +1,23 @@
+# Flow Gate G1/G2 Result
+
+- session_transfer: pass
+- aisandbox_scope: pass
+- recaptcha_factory: pass
+- direct_image: pass
+- decision: continue
+- evidence:
+  - local: `killChromeTree` closes Chrome by `flow-meta-*` user-data-dir (before=0 after=0)
+  - local: `npx tsx src/probes/direct-image.ts` → `FLOW_DIRECT_IMAGE_OK count=1 status=200`
+  - VPS: `npm run probe:import` → `FLOW_VPS_SESSION_READY scope=aisandbox browser=chromium-arm64`
+  - VPS: `npx tsx src/probes/direct-image.ts` → `FLOW_DIRECT_IMAGE_OK count=1 status=200`
+  - recaptcha action: `IMAGE_GENERATION` (not FLOW_GENERATE)
+  - siteKey: captured from Flow page reCAPTCHA iframe (not logged)
+  - endpoint: `POST /v1/projects/{projectId}/flowMedia:batchGenerateImages`
+  - payload shape: top-level `clientContext` + `mediaGenerationContext` + `useNewMedia` + `requests[]`
+  - tool: `PINHOLE`; model: `NARWHAL`; aspect: `IMAGE_ASPECT_RATIO_LANDSCAPE`
+  - reCAPTCHA: `clientContext.recaptchaContext.token` + `applicationType=RECAPTCHA_APPLICATION_TYPE_WEB`
+  - cleanup: VPS bundle/private key/meta removed after gate; local private key + live bundle removed
+- notes:
+  - Flow UI default path often uses `flowCreationAgent:streamChat`; classic image API still works when called directly
+  - probe meta capture must use CDP `request` events (page fetch wrappers are wiped by SPA)
+  - enrollment bundle TTL 10 minutes; RSA-OAEP-SHA256 + AES-256-GCM

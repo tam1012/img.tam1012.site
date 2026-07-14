@@ -1,0 +1,15 @@
+{
+  "imagePanels": [
+    {
+      "generatedImages": [
+        {
+          "encodedImage": "SYNTHETIC_BASE64_PLACEHOLDER",
+          "fifeUrl": "https://example.invalid/synthetic-fife-url",
+          "mediaId": "synthetic-media-id-0001",
+          "seed": 0,
+          "imageModelName": "NARWHAL"
+        }
+      ]
+    }
+  ]
+}

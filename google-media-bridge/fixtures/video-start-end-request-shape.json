@@ -1,0 +1,15 @@
+{
+  "endpoint": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartAndEndImage",
+  "fields": [
+    "clientContext",
+    "requests",
+    "requests[].firstFrameImageMediaId",
+    "requests[].lastFrameImageMediaId",
+    "requests[].textInput.prompt",
+    "requests[].videoModelKey",
+    "requests[].aspectRatio"
+  ],
+  "firstFrameImageMediaId": "synthetic-start-media-id",
+  "lastFrameImageMediaId": "synthetic-end-media-id",
+  "notes": "Sanitized fixture — media ids are synthetic."
+}

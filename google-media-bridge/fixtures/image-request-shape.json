@@ -1,0 +1,8 @@
+{
+  "imageModelName": "NARWHAL",
+  "imageAspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+  "structuredPrompt": {
+    "parts": [{ "text": "A RED APPLE ON WHITE BACKGROUND" }]
+  },
+  "imageInputs": []
+}

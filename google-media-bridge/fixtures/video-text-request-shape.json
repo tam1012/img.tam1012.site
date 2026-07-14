@@ -1,0 +1,13 @@
+{
+  "endpoint": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoText",
+  "modelKey": "abra_t2v_4s",
+  "fields": [
+    "clientContext",
+    "requests",
+    "requests[].aspectRatio",
+    "requests[].textInput.prompt",
+    "requests[].videoModelKey"
+  ],
+  "aspectRatioEnum": ["VIDEO_ASPECT_RATIO_LANDSCAPE", "VIDEO_ASPECT_RATIO_PORTRAIT"],
+  "notes": "Sanitized fixture — no live IDs/tokens."
+}

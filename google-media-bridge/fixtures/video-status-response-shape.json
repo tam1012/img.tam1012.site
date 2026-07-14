@@ -1,0 +1,6 @@
+{
+  "endpoint": "https://aisandbox-pa.googleapis.com/v1/video:batchCheckAsyncVideoGenerationStatus",
+  "statusEnum": ["SCHEDULED", "ACTIVE", "SUCCESSFUL", "FAILED"],
+  "fields": ["operations", "operations[].status", "operations[].response.video.fifeUrl"],
+  "notes": "Sanitized fixture — no signed URLs."
+}

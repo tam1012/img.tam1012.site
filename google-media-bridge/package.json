@@ -1,0 +1,30 @@
+{
+  "name": "google-media-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
+    "test": "vitest run",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.js",
+    "probe:keys": "tsx src/probes/generate-keypair.ts",
+    "probe:import": "tsx src/probes/import-session.ts",
+    "probe:image": "tsx src/probes/direct-image.ts"
+  },
+  "dependencies": {
+    "@fastify/multipart": "10.1.0",
+    "better-sqlite3": "12.11.1",
+    "fastify": "5.10.0",
+    "pino": "10.3.1",
+    "playwright-core": "1.61.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.15.0",
+    "tsx": "4.23.1",
+    "typescript": "5.8.3",
+    "vitest": "4.1.10"
+  }
+}

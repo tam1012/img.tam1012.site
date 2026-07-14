@@ -26,3 +26,16 @@ docs/video-public-paid.md
 docs/prompt-claude-code-grok-imagine.md
 docs/plan_Build ChatGPT Web Image Bridge for img-studio_DeepSeek.txt
 .claude/
+
+# Google Flow bridge/enroller runtime state
+google-media-bridge/data/
+google-media-bridge/secrets/
+google-flow-enroller/state/
+*.flow-enrollment
+
+# Google Flow bridge/enroller build output
+google-media-bridge/dist/
+google-flow-enroller/dist/
+
+# Local probe dumps / temporary captures
+tmp/

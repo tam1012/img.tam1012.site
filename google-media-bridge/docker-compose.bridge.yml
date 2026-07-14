@@ -1,0 +1,40 @@
+services:
+  google-media-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: google-media-bridge:local
+    container_name: google-media-bridge
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      FLOW_BRIDGE_HOST: 0.0.0.0
+      FLOW_BRIDGE_PORT: 8460
+      FLOW_CHROMIUM_PATH: /usr/bin/chromium
+      FLOW_DATA_DIR: /data
+      FLOW_ENROLLMENT_PRIVATE_KEY_FILE: /run/secrets/flow-enrollment-private.pem
+    ports:
+      - "127.0.0.1:8460:8460"
+    volumes:
+      - flow-bridge-data:/data
+      - ${FLOW_ENROLLMENT_PRIVATE_KEY_HOST}:/run/secrets/flow-enrollment-private.pem:ro
+    networks:
+      cliproxyapi_default:
+        aliases:
+          - google-media-bridge
+      img-studio_default:
+        aliases:
+          - google-media-bridge
+    read_only: false
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  flow-bridge-data:
+
+networks:
+  cliproxyapi_default:
+    external: true
+  img-studio_default:
+    external: true

@@ -1,0 +1,21 @@
+services:
+  flow-cpa-sidecar:
+    image: ${FLOW_CPA_IMAGE:-ghcr.io/router-for-me/cliproxyapi:v7.2.66}
+    container_name: flow-cpa-sidecar
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8317:8317"
+    volumes:
+      - ./sidecar.config.yaml:/config.yaml:ro
+    networks:
+      - cliproxyapi_default
+      - img-studio_default
+    command: ["--config", "/config.yaml"]
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  cliproxyapi_default:
+    external: true
+  img-studio_default:
+    external: true
