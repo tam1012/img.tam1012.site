@@ -102,9 +102,6 @@ const en: Messages = {
     submitLogin: "Log in",
     submitRegister: "Create account",
     freeImages: "Create an account and get 10 free images",
-    domainBanner:
-      "IMG Studio has moved to imgstudio.site. Your account, balance, images, and videos are unchanged.",
-    closeDomainBanner: "Dismiss domain notice",
   },
   generate: {
     noProvider: "No AI provider configured",
@@ -334,6 +331,39 @@ const en: Messages = {
     today: "Today",
     thisWeek: "This week",
     thisMonth: "This month",
+  },
+  landing: {
+    signIn: "Log in",
+    badge: "Get {count} free images when you sign up",
+    heroTitle: "Create and edit images and videos with AI",
+    heroSubtitle:
+      "Top AI models in one place. Describe your idea in plain language and get high-quality images and videos — nothing to install.",
+    ctaPrimary: "Try it free",
+    ctaSecondary: "I already have an account",
+    ctaHint: "Free to start · get {count} images the moment you sign up",
+    featuresTitle: "What you can do here",
+    feature1Title: "Generate from many models",
+    feature1Desc: "Pick between models like Google Gemini, GPT Image, Grok, and Imagen in one interface.",
+    feature2Title: "Edit images with words",
+    feature2Desc: "Upload an image and describe the change: swap the background, add detail, blend several images together.",
+    feature3Title: "Create AI video",
+    feature3Desc: "Turn a single description or a still image into motion video with Veo and Grok.",
+    feature4Title: "Prompt assistant",
+    feature4Desc: "Type a rough idea and the system rewrites it into a clear, detailed prompt the model understands.",
+    feature5Title: "Full control over your images",
+    feature5Desc:
+      "Permanently delete your images from the server anytime. Once deleted, they are wiped from disk — not even the admin can view them again.",
+    feature6Title: "Connect via API",
+    feature6Desc:
+      "Create your own API key to generate and edit images from n8n or your automation tools, plugging straight into your existing workflow.",
+    pricingTitle: "Clear pricing, no strings",
+    pricingUnit: "per image",
+    pricingPoint1: "You are only charged on success — if generation fails, you are refunded automatically.",
+    pricingPoint2: "Top up with a bank QR code; your balance is credited right after payment.",
+    pricingPoint3: "Get {count} free images when you create an account — plenty to try things out.",
+    finalCtaTitle: "Ready to make your first image?",
+    finalCtaSubtitle: "Create an account in under a minute and get {count} free images right away.",
+    finalCtaButton: "Create a free account",
   },
 };
 

@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 
-const SIGNUP_CREDIT_VND = 1000;
+export const SIGNUP_CREDIT_VND = 1000;
 const DISPLAY_NAME_MAX = 100;
 /** Chữ (kể cả tiếng Việt), số, khoảng trắng, dấu . ' - ; không cho HTML/ký tự lạ */
 const DISPLAY_NAME_RE = /^[\p{L}\p{N}]+(?:[ .'\-][\p{L}\p{N}]+)*$/u;

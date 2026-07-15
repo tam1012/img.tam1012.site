@@ -7,8 +7,6 @@ import { useT } from "@/i18n";
 
 type Tab = "login" | "register";
 
-const DOMAIN_BANNER_KEY = "imgstudio.hideDomainBanner";
-
 export default function LoginPage() {
   const [tab, setTab] = useState<Tab>("login");
   const [identifier, setIdentifier] = useState("");
@@ -19,28 +17,14 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showDomainBanner, setShowDomainBanner] = useState(false);
   const router = useRouter();
   const t = useT();
 
   useEffect(() => {
-    try {
-      if (localStorage.getItem(DOMAIN_BANNER_KEY) !== "1") {
-        setShowDomainBanner(true);
-      }
-    } catch {
-      setShowDomainBanner(true);
+    if (new URLSearchParams(window.location.search).get("tab") === "register") {
+      setTab("register");
     }
   }, []);
-
-  function dismissDomainBanner() {
-    try {
-      localStorage.setItem(DOMAIN_BANNER_KEY, "1");
-    } catch {
-      // localStorage có thể bị chặn; vẫn ẩn banner trong phiên hiện tại
-    }
-    setShowDomainBanner(false);
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -76,19 +60,6 @@ export default function LoginPage() {
           <LanguageSwitcher size="sm" />
         </div>
         <h1 className="text-2xl font-semibold text-center text-zinc-100 mb-4 tracking-tight">IMG Studio</h1>
-        {showDomainBanner && (
-          <div className="mb-3 flex items-start gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2.5">
-            <p className="flex-1 text-center text-xs leading-relaxed text-zinc-400">{t("auth.domainBanner")}</p>
-            <button
-              type="button"
-              onClick={dismissDomainBanner}
-              aria-label={t("auth.closeDomainBanner")}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
-            >
-              ×
-            </button>
-          </div>
-        )}
         <div className="mb-3 grid grid-cols-2 rounded-xl border border-zinc-800 bg-zinc-900 p-1">
           <button
             type="button"

@@ -100,9 +100,6 @@ const vi = {
     submitLogin: "Đăng nhập",
     submitRegister: "Tạo tài khoản",
     freeImages: "Tạo tài khoản nhận ngay 10 ảnh miễn phí",
-    domainBanner:
-      "IMG Studio đã chuyển sang domain mới imgstudio.site. Tài khoản, số dư, ảnh và video của bạn vẫn được giữ nguyên.",
-    closeDomainBanner: "Đóng thông báo domain",
   },
   generate: {
     noProvider: "Chưa có AI provider nào",
@@ -331,6 +328,39 @@ const vi = {
     today: "Hôm nay",
     thisWeek: "Tuần này",
     thisMonth: "Tháng này",
+  },
+  landing: {
+    signIn: "Đăng nhập",
+    badge: "Tặng {count} ảnh miễn phí khi đăng ký",
+    heroTitle: "Tạo và chỉnh ảnh, video bằng AI",
+    heroSubtitle:
+      "Gom nhiều model AI hàng đầu vào một nơi. Mô tả ý tưởng bằng tiếng Việt, nhận ảnh và video chất lượng cao — không cần cài đặt gì.",
+    ctaPrimary: "Dùng thử miễn phí",
+    ctaSecondary: "Tôi đã có tài khoản",
+    ctaHint: "Miễn phí bắt đầu · nhận ngay {count} ảnh khi tạo tài khoản",
+    featuresTitle: "Bạn làm được gì ở đây",
+    feature1Title: "Tạo ảnh từ nhiều model",
+    feature1Desc: "Chọn giữa các model như Google Gemini, GPT Image, Grok và Imagen trong cùng một giao diện.",
+    feature2Title: "Chỉnh sửa ảnh bằng lời",
+    feature2Desc: "Tải ảnh lên và mô tả thay đổi: đổi nền, thêm chi tiết, ghép nhiều ảnh lại với nhau.",
+    feature3Title: "Tạo video AI",
+    feature3Desc: "Biến một câu mô tả hoặc ảnh tĩnh thành video chuyển động với Veo và Grok.",
+    feature4Title: "Trợ lý viết prompt",
+    feature4Desc: "Gõ ý thô, hệ thống viết lại thành prompt rõ ràng, đủ chi tiết để model hiểu đúng.",
+    feature5Title: "Toàn quyền với ảnh của bạn",
+    feature5Desc:
+      "Tự xóa vĩnh viễn ảnh khỏi server bất cứ lúc nào. Sau khi xóa, ảnh bị gỡ khỏi ổ đĩa — kể cả admin cũng không xem lại được.",
+    feature6Title: "Kết nối qua API",
+    feature6Desc:
+      "Tạo API key riêng để gọi tạo và chỉnh ảnh từ n8n hay tool tự động hóa của bạn, ghép thẳng vào quy trình sẵn có.",
+    pricingTitle: "Giá rõ ràng, không ràng buộc",
+    pricingUnit: "mỗi ảnh",
+    pricingPoint1: "Chỉ trừ tiền khi tạo thành công — nếu lỗi, tiền được hoàn lại tự động.",
+    pricingPoint2: "Nạp tiền qua mã QR ngân hàng, số dư cộng ngay sau khi thanh toán.",
+    pricingPoint3: "Tặng {count} ảnh miễn phí khi tạo tài khoản, đủ để dùng thử thoải mái.",
+    finalCtaTitle: "Sẵn sàng tạo ảnh đầu tiên?",
+    finalCtaSubtitle: "Tạo tài khoản trong chưa đầy một phút và nhận ngay {count} ảnh miễn phí.",
+    finalCtaButton: "Tạo tài khoản miễn phí",
   },
 } as const;
 

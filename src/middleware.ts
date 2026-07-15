@@ -10,6 +10,7 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isPublic =
+    pathname === "/" ||
     pathname === "/login" ||
     pathname === "/api/auth" ||
     pathname === "/api/auth/login" ||
