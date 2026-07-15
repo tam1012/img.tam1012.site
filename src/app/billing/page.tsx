@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Script from "next/script";
 import AppShell from "@/components/AppShell";
 import ApiKeysPanel from "@/components/ApiKeysPanel";
-import { formatLedgerType } from "@/lib/pricing";
+import { formatDateTime, formatVnd, useLocale, useT, type MessageKey } from "@/i18n";
 
 interface Wallet {
   balance_vnd: number;
@@ -49,15 +49,20 @@ const PACKAGES = [
   { id: "p100k", amountVnd: 100000 },
 ];
 
-function formatVnd(value: number) {
-  return new Intl.NumberFormat("vi-VN").format(value) + "đ";
-}
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleString("vi-VN", { hour12: false });
-}
+const LEDGER_KEYS = new Set([
+  "topup_manual",
+  "topup_payos",
+  "charge_image",
+  "refund_image",
+  "charge_video",
+  "refund_video",
+  "adjust_manual",
+]);
 
 export default function BillingPage() {
+  const t = useT();
+  const { locale } = useLocale();
+  const money = (value: number) => formatVnd(value, locale);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [role, setRole] = useState<"admin" | "user" | null>(null);
   const [ledger, setLedger] = useState<LedgerItem[]>([]);
@@ -73,14 +78,25 @@ export default function BillingPage() {
   const price = wallet?.image_price_vnd ?? 100;
   const isAdmin = role === "admin";
 
+  function ledgerLabel(type: string) {
+    if (LEDGER_KEYS.has(type)) {
+      return t(`ledger.${type}` as MessageKey);
+    }
+    return type;
+  }
+
   const refreshWallet = useCallback(() => {
-    fetch("/api/me").then((r) => r.json()).then((data) => {
-      if (data.wallet) setWallet(data.wallet);
-      if (data.user?.role === "admin" || data.user?.role === "user") setRole(data.user.role);
-    });
-    fetch("/api/wallet/ledger").then((r) => (r.ok ? r.json() : null)).then((data) => {
-      if (data?.ledger) setLedger(data.ledger);
-    });
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.wallet) setWallet(data.wallet);
+        if (data.user?.role === "admin" || data.user?.role === "user") setRole(data.user.role);
+      });
+    fetch("/api/wallet/ledger")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.ledger) setLedger(data.ledger);
+      });
   }, []);
 
   useEffect(() => {
@@ -116,7 +132,6 @@ export default function BillingPage() {
     });
     exitRef.current = exit;
     open(true);
-    // Đưa khung QR vào giữa màn hình để user không phải cuộn tìm.
     requestAnimationFrame(() => {
       embedSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -153,7 +168,7 @@ export default function BillingPage() {
         window.location.href = data.checkoutUrl;
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Không tạo được link thanh toán");
+      setError(e instanceof Error ? e.message : t("billing.createLinkFailed"));
       setActivePackage(null);
     } finally {
       setLoadingId(null);
@@ -165,38 +180,42 @@ export default function BillingPage() {
       <Script src={PAYOS_SCRIPT} strategy="afterInteractive" onReady={() => setScriptReady(true)} />
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-          <h1 className="text-lg font-semibold text-zinc-100 mb-4">Số dư và nạp tiền</h1>
+          <h1 className="text-lg font-semibold text-zinc-100 mb-4">{t("billing.title")}</h1>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Stat label="Số dư" value={formatVnd(wallet?.balance_vnd ?? 0)} />
-            <Stat label="Giá mỗi ảnh" value={formatVnd(price)} />
-            <Stat label="Còn tạo được ảnh" value={`${wallet?.remaining_images ?? 0} ảnh`} />
-            <Stat label="Giá mỗi video" value={formatVnd(wallet?.video_price_vnd ?? 5000)} />
-            <Stat label="Còn tạo được video" value={`${wallet?.remaining_videos ?? 0} video`} />
+            <Stat label={t("billing.balance")} value={money(wallet?.balance_vnd ?? 0)} />
+            <Stat label={t("billing.imagePrice")} value={money(price)} />
+            <Stat
+              label={t("billing.remainingImages")}
+              value={t("billing.imagesUnit", { count: wallet?.remaining_images ?? 0 })}
+            />
+            <Stat label={t("billing.videoPrice")} value={money(wallet?.video_price_vnd ?? 5000)} />
+            <Stat
+              label={t("billing.remainingVideos")}
+              value={t("billing.videosUnit", { count: wallet?.remaining_videos ?? 0 })}
+            />
           </div>
         </section>
 
         {isAdmin && (
           <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 px-4 py-3 text-sm text-blue-100/90">
-            Tài khoản admin không bị trừ tiền khi tạo ảnh/video. Gói nạp bên dưới chủ yếu để test PayOS.
+            {t("billing.adminNote")}
           </div>
         )}
 
         {notice === "success" && (
           <div className="rounded-xl border border-emerald-900/60 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-200">
-            Thanh toán thành công. Số dư sẽ được cộng trong vài giây, làm mới trang nếu chưa thấy.
+            {t("billing.paySuccess")}
           </div>
         )}
         {notice === "cancel" && (
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
-            Bạn đã huỷ thanh toán. Chưa có khoản nạp nào được thực hiện.
+            {t("billing.payCancel")}
           </div>
         )}
 
         <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 space-y-3">
-          <h2 className="text-sm font-medium text-zinc-200">Chọn gói nạp</h2>
-          <p className="text-sm text-zinc-400">
-            Chọn một gói để thanh toán qua PayOS (quét mã QR chuyển khoản). Số dư và số ảnh sẽ tự cộng ngay sau khi thanh toán thành công.
-          </p>
+          <h2 className="text-sm font-medium text-zinc-200">{t("billing.choosePackage")}</h2>
+          <p className="text-sm text-zinc-400">{t("billing.choosePackageHint")}</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {PACKAGES.map((pkg) => (
               <button
@@ -205,9 +224,11 @@ export default function BillingPage() {
                 disabled={loadingId !== null || checkoutUrl !== null}
                 className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-center transition-colors hover:border-zinc-700 hover:bg-zinc-800/50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                <p className="text-base font-semibold text-zinc-100">{formatVnd(pkg.amountVnd)}</p>
-                <p className="text-xs text-zinc-500 mt-1">{Math.floor(pkg.amountVnd / price)} ảnh</p>
-                {loadingId === pkg.id && <p className="text-xs text-zinc-500 mt-1">Đang tạo link...</p>}
+                <p className="text-base font-semibold text-zinc-100">{money(pkg.amountVnd)}</p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  {t("billing.imagesUnit", { count: Math.floor(pkg.amountVnd / price) })}
+                </p>
+                {loadingId === pkg.id && <p className="text-xs text-zinc-500 mt-1">{t("billing.creatingLink")}</p>}
               </button>
             ))}
           </div>
@@ -215,22 +236,17 @@ export default function BillingPage() {
         </section>
 
         {checkoutUrl && (
-          <section
-            ref={embedSectionRef}
-            className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6 space-y-4"
-          >
+          <section ref={embedSectionRef} className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6 space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-sm font-medium text-zinc-200">Quét mã QR để thanh toán</h2>
-                <p className="text-xs text-zinc-500 mt-1">
-                  Dùng app ngân hàng quét mã. Số dư tự cộng sau khi thanh toán thành công.
-                </p>
+                <h2 className="text-sm font-medium text-zinc-200">{t("billing.scanQr")}</h2>
+                <p className="text-xs text-zinc-500 mt-1">{t("billing.scanQrHint")}</p>
                 {activePackage && (
                   <p className="text-xs text-zinc-400 mt-2">
-                    Gói đang nạp:{" "}
-                    <span className="text-zinc-200 font-medium">{formatVnd(activePackage.amountVnd)}</span>
+                    {t("billing.activePackage")}
+                    <span className="text-zinc-200 font-medium">{money(activePackage.amountVnd)}</span>
                     {" · "}
-                    {Math.floor(activePackage.amountVnd / price)} ảnh
+                    {t("billing.imagesUnit", { count: Math.floor(activePackage.amountVnd / price) })}
                   </p>
                 )}
               </div>
@@ -238,7 +254,7 @@ export default function BillingPage() {
                 onClick={closeCheckout}
                 className="shrink-0 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-300 transition-colors cursor-pointer"
               >
-                Huỷ
+                {t("common.cancel")}
               </button>
             </div>
             <div className="flex justify-center">
@@ -250,14 +266,14 @@ export default function BillingPage() {
               </div>
             </div>
             <p className="text-center text-xs text-zinc-500">
-              Không quét được?{" "}
+              {t("billing.cantScan")}{" "}
               <a
                 href={checkoutUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-zinc-300 hover:text-white underline-offset-2 hover:underline"
               >
-                Mở trang thanh toán PayOS
+                {t("billing.openPayos")}
               </a>
             </p>
           </section>
@@ -266,9 +282,9 @@ export default function BillingPage() {
         <ApiKeysPanel />
 
         <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-          <h2 className="text-sm font-medium text-zinc-200 mb-2">Cần hỗ trợ?</h2>
+          <h2 className="text-sm font-medium text-zinc-200 mb-2">{t("billing.needHelp")}</h2>
           <p className="text-sm text-zinc-400">
-            Liên hệ admin: Telegram{" "}
+            {t("common.contactAdmin")}{" "}
             <a
               href="https://t.me/ThongThaiTuaThanTien"
               target="_blank"
@@ -281,22 +297,28 @@ export default function BillingPage() {
         </section>
 
         <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
-          <h2 className="text-sm font-medium text-zinc-200 mb-3">Lịch sử giao dịch</h2>
+          <h2 className="text-sm font-medium text-zinc-200 mb-3">{t("billing.ledger")}</h2>
           {ledger.length === 0 ? (
-            <p className="text-sm text-zinc-500">Chưa có giao dịch</p>
+            <p className="text-sm text-zinc-500">{t("billing.noLedger")}</p>
           ) : (
             <div className="divide-y divide-zinc-800">
               {ledger.map((item) => (
                 <div key={item.id} className="py-3 flex items-center justify-between gap-4 text-sm">
                   <div>
-                    <p className="text-zinc-300">{formatLedgerType(item.type)}</p>
-                    <p className="text-xs text-zinc-600">{formatDate(item.created_at)}{item.note ? ` · ${item.note}` : ""}</p>
+                    <p className="text-zinc-300">{ledgerLabel(item.type)}</p>
+                    <p className="text-xs text-zinc-600">
+                      {formatDateTime(item.created_at, locale)}
+                      {item.note ? ` · ${item.note}` : ""}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className={item.amount_vnd >= 0 ? "text-emerald-400" : "text-red-400"}>
-                      {item.amount_vnd >= 0 ? "+" : ""}{formatVnd(item.amount_vnd)}
+                      {item.amount_vnd >= 0 ? "+" : ""}
+                      {money(item.amount_vnd)}
                     </p>
-                    <p className="text-xs text-zinc-600">Còn {formatVnd(item.balance_after_vnd)}</p>
+                    <p className="text-xs text-zinc-600">
+                      {t("billing.balanceAfter", { amount: money(item.balance_after_vnd) })}
+                    </p>
                   </div>
                 </div>
               ))}

@@ -4,23 +4,26 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import AccountMenu, { AccountMenuData } from "@/components/AccountMenu";
-
-const NAV_LINKS = [
-  { href: "/generate", label: "Tạo ảnh" },
-  { href: "/edit", label: "Chỉnh sửa" },
-  { href: "/video", label: "Tạo video" },
-  { href: "/gallery", label: "Thư viện" },
-  { href: "/billing", label: "Nạp tiền" },
-];
+import LanguageSwitcher from "@/i18n/LanguageSwitcher";
+import { useT } from "@/i18n";
 
 export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
+  const t = useT();
   const [me, setMe] = useState<AccountMenuData | null>(null);
+
+  const navLinks = [
+    { href: "/generate", label: t("nav.generate") },
+    { href: "/edit", label: t("nav.edit") },
+    { href: "/video", label: t("nav.video") },
+    { href: "/gallery", label: t("nav.gallery") },
+    { href: "/billing", label: t("nav.billing") },
+  ];
 
   const fetchMe = useCallback(() => {
     fetch("/api/me")
-      .then((res) => res.ok ? res.json() : null)
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.user) setMe(data);
       });
@@ -44,8 +47,8 @@ export default function Header() {
           IMG Studio
         </Link>
 
-        <nav className="hidden min-w-0 items-center gap-1 md:flex" aria-label="Điều hướng chính">
-          {NAV_LINKS.map((link) => {
+        <nav className="hidden min-w-0 items-center gap-1 md:flex" aria-label={t("nav.main")}>
+          {navLinks.map((link) => {
             const active = pathname === link.href || pathname.startsWith(link.href + "/");
             return (
               <Link
@@ -64,11 +67,14 @@ export default function Header() {
           })}
         </nav>
 
-        <div className="md:hidden">
-          <AccountMenu me={me} onLogout={handleLogout} compact />
-        </div>
-        <div className="hidden md:block">
-          <AccountMenu me={me} onLogout={handleLogout} />
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher size="sm" />
+          <div className="md:hidden">
+            <AccountMenu me={me} onLogout={handleLogout} compact />
+          </div>
+          <div className="hidden md:block">
+            <AccountMenu me={me} onLogout={handleLogout} />
+          </div>
         </div>
       </div>
     </header>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import { useT } from "@/i18n";
 
 interface VideoItem {
   id: string;
@@ -31,6 +32,7 @@ function modelTitle(model: string) {
 }
 
 export default function VideoLibrary() {
+  const t = useT();
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -45,16 +47,16 @@ export default function VideoLibrary() {
       const res = await fetch("/api/video/list");
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(data?.error || "Không tải được danh sách video");
+        setError(data?.error || t("videoLib.loadFailed"));
         return;
       }
       setVideos(data.videos || []);
     } catch {
-      setError("Không tải được danh sách video");
+      setError(t("videoLib.loadFailed"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void fetchVideos();
@@ -63,7 +65,7 @@ export default function VideoLibrary() {
   async function handleDownload(url: string, filename: string) {
     try {
       const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Tải video thất bại");
+      if (!res.ok) throw new Error(t("videoLib.downloadFailed"));
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -74,7 +76,7 @@ export default function VideoLibrary() {
       anchor.remove();
       URL.revokeObjectURL(objectUrl);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Tải video thất bại");
+      setError(e instanceof Error ? e.message : t("videoLib.downloadFailed"));
     }
   }
 
@@ -86,13 +88,13 @@ export default function VideoLibrary() {
       const res = await fetch(`/api/video/${confirmVideo.id}`, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setError(data?.error || "Không xóa được video");
+        setError(data?.error || t("videoLib.deleteFailed"));
         return;
       }
       if (playingId === confirmVideo.id) setPlayingId(null);
       setVideos((prev) => prev.filter((v) => v.id !== confirmVideo.id));
     } catch {
-      setError("Không xóa được video");
+      setError(t("videoLib.deleteFailed"));
     } finally {
       setDeleting(false);
       setConfirmVideo(null);
@@ -100,7 +102,11 @@ export default function VideoLibrary() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><span className="spinner" /></div>;
+    return (
+      <div className="flex items-center justify-center py-20">
+        <span className="spinner" />
+      </div>
+    );
   }
 
   return (
@@ -113,8 +119,8 @@ export default function VideoLibrary() {
 
       {videos.length === 0 ? (
         <div className="text-center py-20">
-          <p className="text-zinc-500">Chưa có video nào</p>
-          <p className="text-sm text-zinc-600 mt-1">Bắt đầu tạo video ở tab &quot;Tạo video&quot;</p>
+          <p className="text-zinc-500">{t("videoLib.empty")}</p>
+          <p className="text-sm text-zinc-600 mt-1">{t("videoLib.emptyHint")}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -126,7 +132,7 @@ export default function VideoLibrary() {
                 <button
                   type="button"
                   onClick={() => setPlayingId(video.id)}
-                  aria-label={`Phát ${modelTitle(video.model)}`}
+                  aria-label={t("videoLib.play", { title: modelTitle(video.model) })}
                   className="group relative flex aspect-video w-full items-center justify-center bg-zinc-800 cursor-pointer"
                 >
                   {video.thumbnail_url && (
@@ -135,11 +141,18 @@ export default function VideoLibrary() {
                       src={video.thumbnail_url}
                       alt=""
                       className="absolute inset-0 h-full w-full object-cover"
-                      onError={(event) => { (event.target as HTMLImageElement).style.display = "none"; }}
+                      onError={(event) => {
+                        (event.target as HTMLImageElement).style.display = "none";
+                      }}
                     />
                   )}
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors group-hover:bg-black/10">
-                    <svg className="h-12 w-12 text-white/70 drop-shadow transition-colors group-hover:text-white/90" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg
+                      className="h-12 w-12 text-white/70 drop-shadow transition-colors group-hover:text-white/90"
+                      fill="currentColor"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
                       <path d="M8 5v14l11-7z" />
                     </svg>
                   </div>
@@ -147,17 +160,18 @@ export default function VideoLibrary() {
               )}
               <div className="flex items-start justify-between gap-2 px-3 py-2">
                 <div className="min-w-0">
-                  <p className="line-clamp-2 text-xs text-zinc-300">{video.prompt || "(không có mô tả)"}</p>
+                  <p className="line-clamp-2 text-xs text-zinc-300">{video.prompt || t("videoLib.noPrompt")}</p>
                   <p className="mt-1 text-[10px] text-zinc-600">
-                    {modelTitle(video.model)} · {video.resolution || "mặc định"} · {video.aspect_ratio} · {video.duration_seconds}s · {video.mode === "image" ? "từ ảnh" : "từ mô tả"}
+                    {modelTitle(video.model)} · {video.resolution || t("common.default")} · {video.aspect_ratio} ·{" "}
+                    {video.duration_seconds}s · {video.mode === "image" ? t("videoLib.fromImage") : t("videoLib.fromText")}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <button
                     onClick={() => void handleDownload(video.url, `video-${video.id}.mp4`)}
                     className="p-1.5 text-zinc-500 transition-colors hover:text-zinc-300 cursor-pointer"
-                    title="Tải về"
-                    aria-label="Tải video"
+                    title={t("videoLib.download")}
+                    aria-label={t("videoLib.downloadAria")}
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0-4-4m4 4 4-4M4 18h16" />
@@ -166,11 +180,15 @@ export default function VideoLibrary() {
                   <button
                     onClick={() => setConfirmVideo(video)}
                     className="p-1.5 text-zinc-500 transition-colors hover:text-red-400 cursor-pointer"
-                    title="Xóa"
-                    aria-label="Xóa video"
+                    title={t("videoLib.delete")}
+                    aria-label={t("videoLib.deleteAria")}
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0v12a1 1 0 001 1h6a1 1 0 001-1V7" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0v12a1 1 0 001 1h6a1 1 0 001-1V7"
+                      />
                     </svg>
                   </button>
                 </div>
@@ -182,9 +200,9 @@ export default function VideoLibrary() {
 
       <ConfirmDialog
         open={confirmVideo !== null}
-        title="Xóa video?"
-        description="Video và file sẽ bị gỡ khỏi thư viện và server. Không hoàn tiền và không thể hoàn tác."
-        confirmLabel="Xóa vĩnh viễn"
+        title={t("videoLib.confirmTitle")}
+        description={t("videoLib.confirmDesc")}
+        confirmLabel={t("videoLib.hardDelete")}
         tone="danger"
         loading={deleting}
         onCancel={() => setConfirmVideo(null)}

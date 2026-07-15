@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
 import PromptRefineControls from "@/components/PromptRefineControls";
+import { formatVnd, useLocale, useT, type MessageKey } from "@/i18n";
 
 interface VideoItem {
   id: string;
@@ -38,14 +39,24 @@ const ALL_MODEL_OPTIONS = [
   "grok-imagine-video-1.5-preview",
 ] as const;
 
-const MODEL_META: Record<string, { title: string; blurb: string }> = {
-  "veo-3.1-generate-001": { title: "Veo 3.1", blurb: "Chất lượng cao, hỗ trợ âm thanh" },
-  "veo-3.1-fast-generate-001": { title: "Veo 3.1 Fast", blurb: "Nhanh hơn, hỗ trợ âm thanh" },
-  "veo-3.0-generate-001": { title: "Veo 3.0", blurb: "Model ổn định thế hệ trước" },
-  "veo-3.0-fast-generate-001": { title: "Veo 3.0 Fast", blurb: "Ưu tiên tốc độ" },
-  "veo-2.0-generate-001": { title: "Veo 2.0", blurb: "Tương thích 720p" },
-  "grok-imagine-video": { title: "Grok Video", blurb: "Tạo video từ mô tả" },
-  "grok-imagine-video-1.5-preview": { title: "Grok Video 1.5", blurb: "Tạo chuyển động từ ảnh" },
+const MODEL_TITLE: Record<string, string> = {
+  "veo-3.1-generate-001": "Veo 3.1",
+  "veo-3.1-fast-generate-001": "Veo 3.1 Fast",
+  "veo-3.0-generate-001": "Veo 3.0",
+  "veo-3.0-fast-generate-001": "Veo 3.0 Fast",
+  "veo-2.0-generate-001": "Veo 2.0",
+  "grok-imagine-video": "Grok Video",
+  "grok-imagine-video-1.5-preview": "Grok Video 1.5",
+};
+
+const MODEL_BLURB_KEY: Record<string, MessageKey> = {
+  "veo-3.1-generate-001": "video.blurbVeo31",
+  "veo-3.1-fast-generate-001": "video.blurbVeo31Fast",
+  "veo-3.0-generate-001": "video.blurbVeo30",
+  "veo-3.0-fast-generate-001": "video.blurbVeo30Fast",
+  "veo-2.0-generate-001": "video.blurbVeo20",
+  "grok-imagine-video": "video.blurbGrok",
+  "grok-imagine-video-1.5-preview": "video.blurbGrok15",
 };
 
 const PUBLIC_MODELS = new Set([
@@ -81,33 +92,14 @@ const RESOLUTIONS_BY_MODEL: Record<string, { value: string; label: string }[]> =
   "veo-2.0-generate-001": [{ value: "720p", label: "720p" }],
 };
 
-const ASPECT_OPTIONS = [
-  { value: "16:9", label: "Ngang (16:9)" },
-  { value: "9:16", label: "Dọc (9:16)" },
-];
-
-const DURATION_OPTIONS = [
-  { value: "5", label: "5 giây" },
-  { value: "8", label: "8 giây" },
-];
-
-const XAI_DURATION_OPTIONS = [
-  { value: "5", label: "5 giây" },
-  { value: "8", label: "8 giây" },
-  { value: "10", label: "10 giây" },
-  { value: "12", label: "12 giây" },
-  { value: "15", label: "15 giây" },
-];
-
-function formatVnd(value: number) {
-  return new Intl.NumberFormat("vi-VN").format(value) + "đ";
-}
-
 function modelTitle(model: string) {
-  return MODEL_META[model]?.title || model;
+  return MODEL_TITLE[model] || model;
 }
 
 export default function VideoPage() {
+  const t = useT();
+  const { locale } = useLocale();
+  const money = (value: number) => formatVnd(value, locale);
   const [role, setRole] = useState<"admin" | "user" | null>(null);
   const [wallet, setWallet] = useState<WalletInfo | null>(null);
   const [mode, setMode] = useState<"text" | "image">("text");
@@ -127,11 +119,11 @@ export default function VideoPage() {
 
   const isAdmin = role === "admin";
   const roleModelOptions = useMemo(
-    () => isAdmin ? ALL_MODEL_OPTIONS : ALL_MODEL_OPTIONS.filter((item) => PUBLIC_MODELS.has(item)),
+    () => (isAdmin ? ALL_MODEL_OPTIONS : ALL_MODEL_OPTIONS.filter((item) => PUBLIC_MODELS.has(item))),
     [isAdmin]
   );
   const modelOptions = useMemo(
-    () => roleModelOptions.filter((item) => mode === "text" ? item !== XAI_IMAGE_ONLY : item !== XAI_TEXT_ONLY),
+    () => roleModelOptions.filter((item) => (mode === "text" ? item !== XAI_IMAGE_ONLY : item !== XAI_TEXT_ONLY)),
     [mode, roleModelOptions]
   );
   const resolutionOptions = useMemo(() => {
@@ -139,8 +131,15 @@ export default function VideoPage() {
     return isAdmin ? options : options.filter((item) => item.value !== "4k");
   }, [model, isAdmin]);
   const isXai = XAI_MODELS.has(model);
-  const durationOptions = isXai ? XAI_DURATION_OPTIONS : DURATION_OPTIONS;
+  const durationOptions = useMemo(() => {
+    const values = isXai ? ["5", "8", "10", "12", "15"] : ["5", "8"];
+    return values.map((n) => ({ value: n, label: t("video.seconds", { n }) }));
+  }, [isXai, t]);
   const canAfford = isAdmin || (wallet !== null && wallet.balance_vnd >= wallet.video_price_vnd);
+  const aspectOptions = [
+    { value: "16:9", label: t("common.ratioLandscape169Short") },
+    { value: "9:16", label: t("common.ratioPortrait916Short") },
+  ];
 
   useEffect(() => {
     if (resolutionOptions.length > 0 && !resolutionOptions.some((item) => item.value === resolution)) {
@@ -198,11 +197,11 @@ export default function VideoPage() {
   async function handleGenerate() {
     if (loading) return;
     if (mode === "image" && !imageFile) {
-      setError("Vui lòng chọn ảnh gốc");
+      setError(t("video.needImage"));
       return;
     }
     if (!prompt.trim() && mode === "text") {
-      setError("Vui lòng nhập mô tả");
+      setError(t("video.needPrompt"));
       return;
     }
 
@@ -226,7 +225,7 @@ export default function VideoPage() {
       await fetchMe();
       window.dispatchEvent(new Event("wallet-refresh"));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Có lỗi xảy ra");
+      setError(e instanceof Error ? e.message : t("common.errorGeneric"));
     } finally {
       setLoading(false);
     }
@@ -235,7 +234,7 @@ export default function VideoPage() {
   async function handleDownload(url: string, filename: string) {
     try {
       const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Tải video thất bại");
+      if (!res.ok) throw new Error(t("video.downloadFailed"));
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -246,16 +245,14 @@ export default function VideoPage() {
       anchor.remove();
       URL.revokeObjectURL(objectUrl);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Tải video thất bại");
+      setError(e instanceof Error ? e.message : t("video.downloadFailed"));
     }
   }
 
   if (role === null) {
     return (
       <AppShell>
-        <main className="max-w-3xl mx-auto px-4 py-16 text-center text-zinc-500 text-sm">
-          Đang tải...
-        </main>
+        <main className="max-w-3xl mx-auto px-4 py-16 text-center text-zinc-500 text-sm">{t("common.loading")}</main>
       </AppShell>
     );
   }
@@ -265,17 +262,29 @@ export default function VideoPage() {
       <main className="mx-auto max-w-3xl px-4 py-8">
         <div className="space-y-5">
           <section>
-            <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-600">Bắt đầu từ</p>
+            <p className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-600">{t("video.startFrom")}</p>
             <div className="grid grid-cols-2 gap-2">
-              <ModeButton active={mode === "text"} title="Từ mô tả" description="Biến ý tưởng thành video" onClick={() => selectMode("text")} disabled={loading} />
-              <ModeButton active={mode === "image"} title="Từ ảnh" description="Tạo chuyển động cho ảnh" onClick={() => selectMode("image")} disabled={loading} />
+              <ModeButton
+                active={mode === "text"}
+                title={t("video.fromText")}
+                description={t("video.fromTextDesc")}
+                onClick={() => selectMode("text")}
+                disabled={loading}
+              />
+              <ModeButton
+                active={mode === "image"}
+                title={t("video.fromImage")}
+                description={t("video.fromImageDesc")}
+                onClick={() => selectMode("image")}
+                disabled={loading}
+              />
             </div>
           </section>
 
           <textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder={mode === "image" ? "Mô tả chuyển động cho video (tuỳ chọn)..." : "Mô tả video bạn muốn tạo..."}
+            placeholder={mode === "image" ? t("video.placeholderImage") : t("video.placeholderText")}
             rows={4}
             disabled={loading}
             className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-[15px] leading-relaxed text-zinc-100 outline-none transition-colors placeholder-zinc-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 disabled:opacity-70"
@@ -303,7 +312,7 @@ export default function VideoPage() {
               {imagePreview && (
                 <div className="max-w-xs overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={imagePreview} alt="Ảnh gốc" className="w-full" />
+                  <img src={imagePreview} alt={t("video.sourceAlt")} className="w-full" />
                 </div>
               )}
             </div>
@@ -311,13 +320,13 @@ export default function VideoPage() {
 
           <section>
             <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-600">Chọn model</p>
-              <span className="text-xs text-zinc-600">{modelOptions.length} lựa chọn phù hợp</span>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-600">{t("video.chooseModel")}</p>
+              <span className="text-xs text-zinc-600">{t("video.modelChoices", { count: modelOptions.length })}</span>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {modelOptions.map((item) => {
-                const meta = MODEL_META[item];
                 const active = model === item;
+                const blurbKey = MODEL_BLURB_KEY[item];
                 return (
                   <button
                     key={item}
@@ -331,8 +340,10 @@ export default function VideoPage() {
                         : "border-zinc-800 bg-zinc-900 hover:border-zinc-700 hover:bg-zinc-800/70"
                     }`}
                   >
-                    <span className={`block text-sm font-medium ${active ? "text-blue-100" : "text-zinc-200"}`}>{meta.title}</span>
-                    <span className="mt-1 block text-xs text-zinc-500">{meta.blurb}</span>
+                    <span className={`block text-sm font-medium ${active ? "text-blue-100" : "text-zinc-200"}`}>
+                      {modelTitle(item)}
+                    </span>
+                    <span className="mt-1 block text-xs text-zinc-500">{blurbKey ? t(blurbKey) : ""}</span>
                   </button>
                 );
               })}
@@ -341,10 +352,16 @@ export default function VideoPage() {
 
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
             {resolutionOptions.length > 0 && (
-              <Select label="Chất lượng" value={resolution} onChange={setResolution} options={resolutionOptions} disabled={loading} />
+              <Select
+                label={t("common.quality")}
+                value={resolution}
+                onChange={setResolution}
+                options={resolutionOptions}
+                disabled={loading}
+              />
             )}
-            <Select label="Tỷ lệ" value={aspectRatio} onChange={setAspectRatio} options={ASPECT_OPTIONS} disabled={loading} />
-            <Select label="Thời lượng" value={duration} onChange={setDuration} options={durationOptions} disabled={loading} />
+            <Select label={t("common.aspectRatio")} value={aspectRatio} onChange={setAspectRatio} options={aspectOptions} disabled={loading} />
+            <Select label={t("video.duration")} value={duration} onChange={setDuration} options={durationOptions} disabled={loading} />
           </div>
 
           {isAdmin && !isXai && accounts.length > 0 && (
@@ -355,13 +372,17 @@ export default function VideoPage() {
                 aria-expanded={showAdvanced}
                 className="flex w-full items-center justify-between gap-3 px-4 py-3 text-sm text-zinc-400 cursor-pointer"
               >
-                <span>{showAdvanced ? "▾" : "▸"} Tuỳ chọn quản trị</span>
-                <span className="truncate text-xs text-zinc-600">{accounts.find((item) => item.id === account)?.project_id || "Tài khoản mặc định"}</span>
+                <span>
+                  {showAdvanced ? "▾" : "▸"} {t("video.adminOptions")}
+                </span>
+                <span className="truncate text-xs text-zinc-600">
+                  {accounts.find((item) => item.id === account)?.project_id || t("video.defaultAccount")}
+                </span>
               </button>
               {showAdvanced && (
                 <div className="border-t border-zinc-800 px-4 py-3">
                   <Select
-                    label="Tài khoản Vertex"
+                    label={t("video.vertexAccount")}
                     value={account}
                     onChange={setAccount}
                     options={accounts.map((item) => ({ value: item.id, label: item.project_id }))}
@@ -373,8 +394,16 @@ export default function VideoPage() {
           )}
 
           <div className="flex items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
-            <span>{isAdmin ? "Chi phí: miễn phí" : `${formatVnd(wallet?.video_price_vnd ?? 0)} / video`}</span>
-            <span>{isAdmin ? "Admin" : wallet ? `Còn ${wallet.remaining_videos} video` : "Đang tải số dư..."}</span>
+            <span>
+              {isAdmin ? t("video.freeCost") : t("video.pricePerVideo", { price: money(wallet?.video_price_vnd ?? 0) })}
+            </span>
+            <span>
+              {isAdmin
+                ? t("common.admin")
+                : wallet
+                  ? t("common.remainingVideos", { count: wallet.remaining_videos })
+                  : t("common.balanceLoading")}
+            </span>
           </div>
 
           <button
@@ -385,17 +414,17 @@ export default function VideoPage() {
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="spinner" />
-                Đang tạo video...
+                {t("video.creating")}
               </span>
-            ) : !canAfford ? "Số dư không đủ" : "Tạo video"}
+            ) : !canAfford ? (
+              t("video.insufficient")
+            ) : (
+              t("video.create")
+            )}
           </button>
-          {loading && (
-            <p className="text-center text-xs text-zinc-500">Có thể mất 2–10 phút. Vui lòng không đóng trang.</p>
-          )}
+          {loading && <p className="text-center text-xs text-zinc-500">{t("video.waitHint")}</p>}
 
-          {error && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">{error}</div>
-          )}
+          {error && <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">{error}</div>}
 
           {result && (
             <div className="space-y-3 pt-4">
@@ -404,10 +433,14 @@ export default function VideoPage() {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs text-zinc-500">
-                  {modelTitle(result.model)} · {result.resolution || "mặc định"} · {result.aspect_ratio} · {result.duration_seconds}s
+                  {modelTitle(result.model)} · {result.resolution || t("common.default")} · {result.aspect_ratio} ·{" "}
+                  {result.duration_seconds}s
                 </span>
-                <button onClick={() => handleDownload(result.url, `video-${result.id}.mp4`)} className="rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 cursor-pointer">
-                  Tải về
+                <button
+                  onClick={() => handleDownload(result.url, `video-${result.id}.mp4`)}
+                  className="rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 cursor-pointer"
+                >
+                  {t("common.download")}
                 </button>
               </div>
             </div>
@@ -418,7 +451,13 @@ export default function VideoPage() {
   );
 }
 
-function ModeButton({ active, title, description, onClick, disabled }: {
+function ModeButton({
+  active,
+  title,
+  description,
+  onClick,
+  disabled,
+}: {
   active: boolean;
   title: string;
   description: string;
@@ -441,7 +480,13 @@ function ModeButton({ active, title, description, onClick, disabled }: {
   );
 }
 
-function Select({ label, value, onChange, options, disabled = false }: {
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+  disabled = false,
+}: {
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -457,7 +502,11 @@ function Select({ label, value, onChange, options, disabled = false }: {
         disabled={disabled}
         className="cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
       </select>
     </label>
   );

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Modal from "@/components/ui/Modal";
+import { useT } from "@/i18n";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -20,15 +21,18 @@ export default function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Xác nhận",
-  cancelLabel = "Huỷ",
+  confirmLabel,
+  cancelLabel,
   tone = "default",
   requireText,
   loading = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const t = useT();
   const [typed, setTyped] = useState("");
+  const resolvedConfirm = confirmLabel ?? t("common.confirm");
+  const resolvedCancel = cancelLabel ?? t("common.cancel");
 
   useEffect(() => {
     if (open) setTyped("");
@@ -48,7 +52,7 @@ export default function ConfirmDialog({
         {requireText && (
           <div>
             <label className="mb-1.5 block text-xs text-zinc-500">
-              Gõ <strong className="font-semibold text-zinc-300">{requireText}</strong> để xác nhận
+              {t("common.typeToConfirm", { text: requireText })}
             </label>
             <input
               data-autofocus
@@ -69,7 +73,7 @@ export default function ConfirmDialog({
             disabled={loading}
             className="rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
           >
-            {cancelLabel}
+            {resolvedCancel}
           </button>
           <button
             type="submit"
@@ -78,7 +82,7 @@ export default function ConfirmDialog({
               tone === "danger" ? "bg-red-600 hover:bg-red-500" : "bg-blue-600 hover:bg-blue-500"
             }`}
           >
-            {loading ? "Đang xử lý..." : confirmLabel}
+            {loading ? t("common.processing") : resolvedConfirm}
           </button>
         </div>
       </form>

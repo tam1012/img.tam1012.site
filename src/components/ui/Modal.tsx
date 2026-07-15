@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef } from "react";
+import { useT } from "@/i18n";
 
 const SIZE_CLASSES = {
   sm: "max-w-md",
@@ -29,6 +30,7 @@ export default function Modal({
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -98,7 +100,7 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
-        aria-label={title ? undefined : "Hộp thoại"}
+        aria-label={title ? undefined : t("common.dialog")}
         tabIndex={-1}
         className={`w-full ${SIZE_CLASSES[size]} max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40 outline-none`}
       >
@@ -109,7 +111,7 @@ export default function Modal({
               type="button"
               onClick={onClose}
               disabled={disableOverlayClose}
-              aria-label="Đóng hộp thoại"
+              aria-label={t("common.closeDialog")}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
             >
               ×

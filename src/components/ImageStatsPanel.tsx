@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useT } from "@/i18n";
 
 type ModelStatRow = {
   model: string;
@@ -27,21 +28,18 @@ type ImageStatsResponse = {
 };
 
 type Props = {
-  /** mine = của user đăng nhập; all = toàn site (admin) */
   scope?: "mine" | "all";
   title?: string;
   className?: string;
 };
 
-export default function ImageStatsPanel({
-  scope = "mine",
-  title = "Thống kê ảnh",
-  className = "",
-}: Props) {
+export default function ImageStatsPanel({ scope = "mine", title, className = "" }: Props) {
+  const t = useT();
   const [data, setData] = useState<ImageStatsResponse | null>(null);
   const [model, setModel] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const resolvedTitle = title ?? t("stats.title");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,18 +50,18 @@ export default function ImageStatsPanel({
       const res = await fetch(`/api/stats/images?${params.toString()}`);
       const json = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(json?.error || "Không tải được thống kê");
+        setError(json?.error || t("stats.loadFailed"));
         setData(null);
         return;
       }
       setData(json as ImageStatsResponse);
     } catch {
-      setError("Không tải được thống kê");
+      setError(t("stats.loadFailed"));
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, [scope, model]);
+  }, [scope, model, t]);
 
   useEffect(() => {
     load();
@@ -71,14 +69,21 @@ export default function ImageStatsPanel({
 
   const models = data?.models || [];
 
+  function periodLabel(key: PeriodStat["key"], fallback: string) {
+    if (key === "day") return t("stats.today");
+    if (key === "week") return t("stats.thisWeek");
+    if (key === "month") return t("stats.thisMonth");
+    return fallback;
+  }
+
   return (
     <section className={`rounded-xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5 space-y-4 ${className}`}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-medium text-zinc-200">{title}</h2>
+          <h2 className="text-sm font-medium text-zinc-200">{resolvedTitle}</h2>
           <p className="text-xs text-zinc-500 mt-0.5">
-            {scope === "all" ? "Toàn site" : "Của bạn"} · sản lượng đã tạo · múi giờ Việt Nam
-            {data?.model ? ` · model ${data.model}` : ""}
+            {t("stats.subtitle", { scope: scope === "all" ? t("stats.scopeAll") : t("stats.scopeMine") })}
+            {data?.model ? t("stats.modelFilter", { model: data.model }) : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -87,9 +92,11 @@ export default function ImageStatsPanel({
             onChange={(e) => setModel(e.target.value)}
             className="px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer"
           >
-            <option value="all">Tất cả model</option>
+            <option value="all">{t("stats.allModels")}</option>
             {models.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>
+                {m}
+              </option>
             ))}
           </select>
           <button
@@ -97,28 +104,28 @@ export default function ImageStatsPanel({
             onClick={load}
             className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 cursor-pointer"
           >
-            Làm mới
+            {t("stats.refresh")}
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200">
-          {error}
-        </div>
+        <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200">{error}</div>
       )}
 
       {loading && !data ? (
-        <div className="flex justify-center py-6"><span className="spinner" /></div>
+        <div className="flex justify-center py-6">
+          <span className="spinner" />
+        </div>
       ) : data ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {data.periods.map((p) => (
               <div key={p.key} className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-xs text-zinc-500">{p.label}</p>
+                <p className="text-xs text-zinc-500">{periodLabel(p.key, p.label)}</p>
                 <p className="mt-1 text-2xl font-semibold text-zinc-100">{p.total}</p>
                 <p className="mt-1 text-[11px] text-zinc-500">
-                  Tạo mới {p.generate} · Chỉnh sửa {p.edit}
+                  {t("stats.generateEdit", { generate: p.generate, edit: p.edit })}
                 </p>
               </div>
             ))}
@@ -131,7 +138,9 @@ export default function ImageStatsPanel({
                   <tr className="border-b border-zinc-800">
                     <th className="py-2 pr-3 text-left font-medium">Model</th>
                     {data.periods.map((p) => (
-                      <th key={p.key} className="py-2 px-2 text-right font-medium">{p.label}</th>
+                      <th key={p.key} className="py-2 px-2 text-right font-medium">
+                        {periodLabel(p.key, p.label)}
+                      </th>
                     ))}
                   </tr>
                 </thead>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { formatVnd, useLocale, useT } from "@/i18n";
 
 export interface AccountMenuData {
   user: {
@@ -24,19 +25,21 @@ interface AccountMenuProps {
   compact?: boolean;
 }
 
-function formatVnd(value: number) {
-  return new Intl.NumberFormat("vi-VN").format(value) + "đ";
-}
-
 export default function AccountMenu({ me, onLogout, compact = false }: AccountMenuProps) {
   const pathname = usePathname();
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const t = useT();
+  const { locale } = useLocale();
 
   const role = me?.user.role || "user";
-  const name = me?.user.display_name || me?.user.email || me?.user.phone || "Tài khoản";
+  const name = me?.user.display_name || me?.user.email || me?.user.phone || t("nav.account");
   const triggerLabel = compact
-    ? role === "admin" ? "Admin" : me ? `${me.wallet.remaining_images} ảnh` : "Tài khoản"
+    ? role === "admin"
+      ? t("nav.admin")
+      : me
+        ? t("nav.imagesShort", { count: me.wallet.remaining_images })
+        : t("nav.account")
     : name;
 
   useEffect(() => setOpen(false), [pathname]);
@@ -78,20 +81,24 @@ export default function AccountMenu({ me, onLogout, compact = false }: AccountMe
             <p className="truncate text-sm font-medium text-zinc-100">{name}</p>
             <p className="mt-1 text-xs text-zinc-500">
               {role === "admin"
-                ? "Admin · miễn phí"
+                ? t("nav.adminFree")
                 : me
-                  ? `${formatVnd(me.wallet.balance_vnd)} · ${me.wallet.remaining_images} ảnh · ${me.wallet.remaining_videos} video`
-                  : "Đang tải số dư..."}
+                  ? t("nav.walletSummary", {
+                      balance: formatVnd(me.wallet.balance_vnd, locale),
+                      images: me.wallet.remaining_images,
+                      videos: me.wallet.remaining_videos,
+                    })
+                  : t("common.balanceLoading")}
             </p>
           </div>
           <div className="p-1.5">
-            <MenuLink href="/billing" label="Nạp tiền" />
-            <MenuLink href="/docs/api" label="Hướng dẫn API" />
+            <MenuLink href="/billing" label={t("nav.billing")} />
+            <MenuLink href="/docs/api" label={t("nav.apiDocs")} />
             {role === "admin" && (
               <>
-                <MenuLink href="/settings" label="Cài đặt" />
-                <MenuLink href="/admin" label="Admin" />
-                <MenuLink href="/admin/logs" label="Nhật ký request" />
+                <MenuLink href="/settings" label={t("nav.settings")} />
+                <MenuLink href="/admin" label={t("nav.admin")} />
+                <MenuLink href="/admin/logs" label={t("nav.adminLogs")} />
               </>
             )}
           </div>
@@ -102,7 +109,7 @@ export default function AccountMenu({ me, onLogout, compact = false }: AccountMe
               onClick={() => void onLogout()}
               className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200 cursor-pointer"
             >
-              Đăng xuất
+              {t("nav.logout")}
             </button>
           </div>
         </div>

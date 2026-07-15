@@ -2,6 +2,8 @@
 
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import LanguageSwitcher from "@/i18n/LanguageSwitcher";
+import { useT } from "@/i18n";
 
 type Tab = "login" | "register";
 
@@ -19,6 +21,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showDomainBanner, setShowDomainBanner] = useState(false);
   const router = useRouter();
+  const t = useT();
 
   useEffect(() => {
     try {
@@ -57,31 +60,29 @@ export default function LoginPage() {
       if (!res.ok) throw new Error(data.error);
       router.push("/generate");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Có lỗi xảy ra");
+      setError(e instanceof Error ? e.message : t("common.errorGeneric"));
     } finally {
       setLoading(false);
     }
   }
 
-  const canSubmit = tab === "login"
-    ? identifier.trim() && password
-    : (email.trim() || phone.trim()) && password.length >= 8;
+  const canSubmit =
+    tab === "login" ? identifier.trim() && password : (email.trim() || phone.trim()) && password.length >= 8;
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-semibold text-center text-zinc-100 mb-4 tracking-tight">
-          IMG Studio
-        </h1>
+        <div className="mb-4 flex items-center justify-end">
+          <LanguageSwitcher size="sm" />
+        </div>
+        <h1 className="text-2xl font-semibold text-center text-zinc-100 mb-4 tracking-tight">IMG Studio</h1>
         {showDomainBanner && (
           <div className="mb-3 flex items-start gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2.5">
-            <p className="flex-1 text-center text-xs leading-relaxed text-zinc-400">
-              IMG Studio đã chuyển sang domain mới imgstudio.site. Tài khoản, số dư, ảnh và video của bạn vẫn được giữ nguyên.
-            </p>
+            <p className="flex-1 text-center text-xs leading-relaxed text-zinc-400">{t("auth.domainBanner")}</p>
             <button
               type="button"
               onClick={dismissDomainBanner}
-              aria-label="Đóng thông báo domain"
+              aria-label={t("auth.closeDomainBanner")}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
             >
               ×
@@ -91,50 +92,60 @@ export default function LoginPage() {
         <div className="mb-3 grid grid-cols-2 rounded-xl border border-zinc-800 bg-zinc-900 p-1">
           <button
             type="button"
-            onClick={() => { setTab("login"); setError(""); }}
+            onClick={() => {
+              setTab("login");
+              setError("");
+            }}
             className={`rounded-lg py-2 text-sm transition-colors cursor-pointer ${tab === "login" ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"}`}
           >
-            Đăng nhập
+            {t("auth.login")}
           </button>
           <button
             type="button"
-            onClick={() => { setTab("register"); setError(""); }}
+            onClick={() => {
+              setTab("register");
+              setError("");
+            }}
             className={`rounded-lg py-2 text-sm transition-colors cursor-pointer ${tab === "register" ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"}`}
           >
-            Đăng ký
+            {t("auth.register")}
           </button>
         </div>
         <form onSubmit={handleSubmit} className="bg-zinc-900 rounded-xl p-6 border border-zinc-800 space-y-4">
           {tab === "login" ? (
             <div>
               <label htmlFor="identifier" className="block text-sm text-zinc-400 mb-2">
-                Email hoặc số điện thoại
+                {t("auth.identifier")}
               </label>
               <input
                 id="identifier"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors"
-                placeholder="a@example.com hoặc 09..."
+                placeholder={t("auth.identifierPlaceholder")}
                 autoFocus
               />
             </div>
           ) : (
             <>
               <div>
-                <label htmlFor="displayName" className="block text-sm text-zinc-400 mb-2">Tên hiển thị</label>
+                <label htmlFor="displayName" className="block text-sm text-zinc-400 mb-2">
+                  {t("auth.displayName")}
+                </label>
                 <input
                   id="displayName"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value.slice(0, 100))}
                   maxLength={100}
                   className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors"
-                  placeholder="Tên của Anh (chữ, số; tối đa 100 ký tự)"
+                  placeholder={t("auth.displayNamePlaceholder")}
                   autoFocus
                 />
               </div>
               <div>
-                <label htmlFor="email" className="block text-sm text-zinc-400 mb-2">Email</label>
+                <label htmlFor="email" className="block text-sm text-zinc-400 mb-2">
+                  {t("auth.email")}
+                </label>
                 <input
                   id="email"
                   type="email"
@@ -145,13 +156,15 @@ export default function LoginPage() {
                 />
               </div>
               <div>
-                <label htmlFor="phone" className="block text-sm text-zinc-400 mb-2">Số điện thoại</label>
+                <label htmlFor="phone" className="block text-sm text-zinc-400 mb-2">
+                  {t("auth.phone")}
+                </label>
                 <input
                   id="phone"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors"
-                  placeholder="Có thể để trống nếu đã nhập email"
+                  placeholder={t("auth.phonePlaceholder")}
                 />
               </div>
             </>
@@ -159,7 +172,7 @@ export default function LoginPage() {
 
           <div>
             <label htmlFor="password" className="block text-sm text-zinc-400 mb-2">
-              Mật khẩu
+              {t("auth.password")}
             </label>
             <div className="relative">
               <input
@@ -168,12 +181,12 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-3 py-2.5 pr-10 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors"
-                placeholder={tab === "register" ? "Tối thiểu 8 ký tự" : "Nhập mật khẩu"}
+                placeholder={tab === "register" ? t("auth.passwordRegisterPlaceholder") : t("auth.passwordLoginPlaceholder")}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
                 className="absolute inset-y-0 right-0 flex items-center pr-3 text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
               >
                 {showPassword ? (
@@ -189,7 +202,7 @@ export default function LoginPage() {
               </button>
             </div>
             {tab === "register" && password.length >= 1 && password.length < 8 && (
-              <p className="mt-1.5 text-xs text-zinc-500">Mật khẩu tối thiểu 8 ký tự</p>
+              <p className="mt-1.5 text-xs text-zinc-500">{t("auth.passwordMinHint")}</p>
             )}
           </div>
 
@@ -199,14 +212,12 @@ export default function LoginPage() {
             disabled={loading || !canSubmit}
             className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg transition-colors text-sm font-medium cursor-pointer disabled:cursor-not-allowed"
           >
-            {loading ? "Đang xử lý..." : tab === "login" ? "Đăng nhập" : "Tạo tài khoản"}
+            {loading ? t("common.processing") : tab === "login" ? t("auth.submitLogin") : t("auth.submitRegister")}
           </button>
-          {tab === "register" && (
-            <p className="text-center text-xs text-zinc-500">Tạo tài khoản nhận ngay 10 ảnh miễn phí</p>
-          )}
+          {tab === "register" && <p className="text-center text-xs text-zinc-500">{t("auth.freeImages")}</p>}
         </form>
         <p className="mt-4 text-center text-xs text-zinc-500">
-          Liên hệ admin: Telegram{" "}
+          {t("common.contactAdmin")}{" "}
           <a
             href="https://t.me/ThongThaiTuaThanTien"
             target="_blank"

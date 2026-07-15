@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import AppShell from "@/components/AppShell";
 import ImagePresetChips from "@/components/ImagePresetChips";
 import PromptRefineControls from "@/components/PromptRefineControls";
+import { formatVnd, useLocale, useT } from "@/i18n";
 
 interface Provider {
   id: string;
@@ -45,10 +46,6 @@ interface MeData {
   };
 }
 
-function formatVnd(value: number) {
-  return new Intl.NumberFormat("vi-VN").format(value) + "đ";
-}
-
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -63,19 +60,9 @@ async function readJsonSafe(res: Response): Promise<Partial<BatchResult> & { err
   }
 }
 
-function normalizeBatchResult(data: Partial<BatchResult>): BatchResult {
-  if (!Array.isArray(data.images)) {
-    throw new Error("Server trả về dữ liệu ảnh không hợp lệ");
-  }
-  return {
-    images: data.images,
-    charged_vnd: Number(data.charged_vnd) || 0,
-    count: Number(data.count) || data.images.length,
-    partial: Boolean(data.partial),
-  };
-}
-
 export default function GeneratePage() {
+  const t = useT();
+  const { locale } = useLocale();
   const [prompt, setPrompt] = useState("");
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerId, setProviderId] = useState("");
@@ -98,6 +85,7 @@ export default function GeneratePage() {
   const walletReady = me !== null;
   const totalCost = (me?.wallet.image_price_vnd ?? 100) * count;
   const canAfford = walletReady && (me.user.role === "admin" || me.wallet.balance_vnd >= totalCost);
+  const money = (value: number) => formatVnd(value, locale);
 
   const fetchProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
@@ -138,10 +126,22 @@ export default function GeneratePage() {
     }
   }, [isLimitedTo2K, resolution]);
 
+  function normalizeBatchResult(data: Partial<BatchResult>): BatchResult {
+    if (!Array.isArray(data.images)) {
+      throw new Error(t("generate.invalidBatch"));
+    }
+    return {
+      images: data.images,
+      charged_vnd: Number(data.charged_vnd) || 0,
+      count: Number(data.count) || data.images.length,
+      partial: Boolean(data.partial),
+    };
+  }
+
   async function handleGenerate() {
     if (inFlightRef.current || !prompt.trim() || !providerId || !walletReady) return;
     if (!canAfford) {
-      setError("Số dư không đủ, vui lòng liên hệ admin để nạp tiền.");
+      setError(t("common.insufficientBalance"));
       return;
     }
 
@@ -175,7 +175,7 @@ export default function GeneratePage() {
           await sleep(Math.min(Math.max(Number(data.retry_after_ms) || 1500, 800), 5000));
           continue;
         }
-        if (!res.ok) throw new Error(data.error || `Lỗi tạo ảnh (HTTP ${res.status})`);
+        if (!res.ok) throw new Error(data.error || t("generate.httpError", { status: res.status }));
 
         const nextResult = normalizeBatchResult(data);
         setResult(nextResult);
@@ -184,9 +184,9 @@ export default function GeneratePage() {
         window.dispatchEvent(new Event("wallet-refresh"));
         return;
       }
-      throw new Error("Ảnh vẫn đang xử lý quá lâu. Vui lòng kiểm tra lại thư viện sau ít phút.");
+      throw new Error(t("generate.timeout"));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Có lỗi xảy ra");
+      setError(e instanceof Error ? e.message : t("common.errorGeneric"));
     } finally {
       inFlightRef.current = false;
       setLoading(false);
@@ -214,10 +214,10 @@ export default function GeneratePage() {
     return (
       <AppShell>
         <main className="max-w-3xl mx-auto px-4 py-16 text-center">
-          <p className="text-zinc-400 mb-2">Chưa có AI provider nào</p>
-          <p className="text-sm text-zinc-500 mb-4">Thêm provider trong phần Cài đặt để bắt đầu tạo ảnh</p>
+          <p className="text-zinc-400 mb-2">{t("generate.noProvider")}</p>
+          <p className="text-sm text-zinc-500 mb-4">{t("generate.noProviderHint")}</p>
           <a href="/settings" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm transition-colors inline-block">
-            Đi tới Cài đặt
+            {t("generate.goSettings")}
           </a>
         </main>
       </AppShell>
@@ -233,7 +233,7 @@ export default function GeneratePage() {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Mô tả hình ảnh bạn muốn tạo..."
+            placeholder={t("generate.placeholder")}
             rows={4}
             disabled={loading}
             className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors resize-none text-[15px] leading-relaxed disabled:opacity-70 disabled:cursor-not-allowed"
@@ -249,14 +249,13 @@ export default function GeneratePage() {
             disabled={loading}
           />
 
-          {/* Prompt history toggle */}
           {prompts.length > 0 && (
             <div>
               <button
                 onClick={() => setShowHistory(!showHistory)}
                 className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
               >
-                {showHistory ? "▾ Ẩn lịch sử prompt" : "▸ Lịch sử prompt"} ({prompts.length})
+                {showHistory ? t("generate.hideHistory") : t("generate.showHistory")} ({prompts.length})
               </button>
               {showHistory && (
                 <div className="mt-2 max-h-48 overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-xl divide-y divide-zinc-800/50">
@@ -295,15 +294,22 @@ export default function GeneratePage() {
               aria-expanded={showAdvanced}
               className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left cursor-pointer"
             >
-              <span className="text-sm text-zinc-300">{showAdvanced ? "▾" : "▸"} Tuỳ chọn nâng cao</span>
+              <span className="text-sm text-zinc-300">
+                {showAdvanced ? "▾" : "▸"} {t("common.advancedOptions")}
+              </span>
               <span className="truncate text-xs text-zinc-600">
-                {selectedProvider?.name} · {aspectRatio} · {resolution} · {count} ảnh
+                {t("generate.advancedSummary", {
+                  provider: selectedProvider?.name || "",
+                  ratio: aspectRatio,
+                  resolution,
+                  count,
+                })}
               </span>
             </button>
             {showAdvanced && (
               <div className="flex flex-wrap items-center gap-3 border-t border-zinc-800 px-4 py-4">
                 <label className="flex items-center gap-2 text-sm text-zinc-400">
-                  Provider
+                  {t("common.provider")}
                   <select
                     value={providerId}
                     onChange={(e) => setProviderId(e.target.value)}
@@ -311,42 +317,60 @@ export default function GeneratePage() {
                     className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
                   >
                     {providers.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
                     ))}
                   </select>
                 </label>
-                <Select label="Tỷ lệ" value={aspectRatio} onChange={setAspectRatio} options={[
-                  { value: "1:1", label: "Vuông (1:1)" },
-                  { value: "3:2", label: "Ngang (3:2)" },
-                  { value: "4:3", label: "Ngang cổ điển (4:3)" },
-                  { value: "16:9", label: "Ngang rộng (16:9)" },
-                  { value: "2:3", label: "Dọc (2:3)" },
-                  { value: "3:4", label: "Dọc cổ điển (3:4)" },
-                  { value: "9:16", label: "Dọc cao (9:16)" },
-                ]} disabled={loading} />
-                <Select label="Độ phân giải" value={resolution} onChange={setResolution} options={[
-                  { value: "1K", label: "1K (1024px)" },
-                  { value: "1.5K", label: "1.5K (1536px)" },
-                  { value: "2K", label: "2K (2048px)" },
-                  ...(!isLimitedTo2K ? [{ value: "4K", label: "4K (3840px)" }] : []),
-                ]} disabled={loading} />
-                <Select label="Chất lượng" value={quality} onChange={setQuality} options={[
-                  { value: "standard", label: "Tiêu chuẩn" },
-                  { value: "high", label: "Cao" },
-                ]} disabled={loading} />
-                <Select label="Số lượng" value={String(count)} onChange={(v) => setCount(Number(v))} options={[
-                  { value: "1", label: "1 ảnh" },
-                  { value: "2", label: "2 ảnh" },
-                  { value: "3", label: "3 ảnh" },
-                  { value: "4", label: "4 ảnh" },
-                  { value: "5", label: "5 ảnh" },
-                  { value: "6", label: "6 ảnh" },
-                  { value: "7", label: "7 ảnh" },
-                  { value: "8", label: "8 ảnh" },
-                  { value: "9", label: "9 ảnh" },
-                  { value: "10", label: "10 ảnh" },
-                ]} disabled={loading} />
-                <p className="w-full text-xs text-zinc-600">Cùng giá · “Cao” có thể chậm hơn và chi tiết hơn, tuỳ model.</p>
+                <Select
+                  label={t("common.aspectRatio")}
+                  value={aspectRatio}
+                  onChange={setAspectRatio}
+                  options={[
+                    { value: "1:1", label: t("common.ratioSquare") },
+                    { value: "3:2", label: t("common.ratioLandscape32") },
+                    { value: "4:3", label: t("common.ratioLandscape43") },
+                    { value: "16:9", label: t("common.ratioLandscape169") },
+                    { value: "2:3", label: t("common.ratioPortrait23") },
+                    { value: "3:4", label: t("common.ratioPortrait34") },
+                    { value: "9:16", label: t("common.ratioPortrait916") },
+                  ]}
+                  disabled={loading}
+                />
+                <Select
+                  label={t("common.resolution")}
+                  value={resolution}
+                  onChange={setResolution}
+                  options={[
+                    { value: "1K", label: "1K (1024px)" },
+                    { value: "1.5K", label: "1.5K (1536px)" },
+                    { value: "2K", label: "2K (2048px)" },
+                    ...(!isLimitedTo2K ? [{ value: "4K", label: "4K (3840px)" }] : []),
+                  ]}
+                  disabled={loading}
+                />
+                <Select
+                  label={t("common.quality")}
+                  value={quality}
+                  onChange={setQuality}
+                  options={[
+                    { value: "standard", label: t("common.qualityStandard") },
+                    { value: "high", label: t("common.qualityHigh") },
+                  ]}
+                  disabled={loading}
+                />
+                <Select
+                  label={t("common.quantity")}
+                  value={String(count)}
+                  onChange={(v) => setCount(Number(v))}
+                  options={Array.from({ length: 10 }, (_, i) => {
+                    const n = i + 1;
+                    return { value: String(n), label: t("common.nImages", { count: n }) };
+                  })}
+                  disabled={loading}
+                />
+                <p className="w-full text-xs text-zinc-600">{t("common.qualityHint")}</p>
               </div>
             )}
           </div>
@@ -354,21 +378,37 @@ export default function GeneratePage() {
           <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
             <span>
               {count > 1
-                ? `${formatVnd(me?.wallet.image_price_vnd ?? 100)}/ảnh × ${count} = ${formatVnd(totalCost)}`
-                : `Giá: ${formatVnd(me?.wallet.image_price_vnd ?? 100)}/ảnh`}
+                ? t("common.priceTimesCount", {
+                    price: money(me?.wallet.image_price_vnd ?? 100),
+                    count,
+                    total: money(totalCost),
+                  })
+                : t("common.pricePerImage", { price: money(me?.wallet.image_price_vnd ?? 100) })}
             </span>
-            <span>{!walletReady ? "Đang tải số dư..." : me.user.role === "admin" ? "Admin miễn phí" : `Còn ${me.wallet.remaining_images} ảnh`}</span>
+            <span>
+              {!walletReady
+                ? t("common.balanceLoading")
+                : me.user.role === "admin"
+                  ? t("common.adminFree")
+                  : t("common.remainingImages", { count: me.wallet.remaining_images })}
+            </span>
           </div>
           {walletReady && !canAfford && (
             <div className="rounded-xl border border-amber-900/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">
-              Số dư không đủ{count > 1 ? ` để tạo ${count} ảnh` : ""}, vui lòng liên hệ admin để nạp tiền.
+              {count > 1
+                ? t("common.insufficientBalanceCount", { count })
+                : t("common.insufficientBalance")}
             </div>
           )}
-          {walletReady && me.user.role !== "admin" && canAfford && me.wallet.remaining_images > 0 && me.wallet.remaining_images <= 3 && (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-xs text-zinc-400">
-              Còn {me.wallet.remaining_images} ảnh. Liên hệ admin để nạp thêm khi cần.
-            </div>
-          )}
+          {walletReady &&
+            me.user.role !== "admin" &&
+            canAfford &&
+            me.wallet.remaining_images > 0 &&
+            me.wallet.remaining_images <= 3 && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-xs text-zinc-400">
+                {t("common.lowBalanceHint", { count: me.wallet.remaining_images })}
+              </div>
+            )}
 
           <button
             onClick={handleGenerate}
@@ -378,43 +418,49 @@ export default function GeneratePage() {
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="spinner" />
-                {count > 1 ? `Đang tạo ${count} ảnh...` : "Đang tạo ảnh..."}
+                {count > 1 ? t("generate.creatingCount", { count }) : t("generate.creating")}
               </span>
+            ) : count > 1 ? (
+              t("generate.createCount", { count })
             ) : (
-              count > 1 ? `Tạo ${count} ảnh` : "Tạo ảnh"
+              t("generate.create")
             )}
           </button>
           {loading && resolution === "4K" && (
-            <p className="text-xs text-zinc-500 text-center">Ảnh độ phân giải cao có thể mất 30-60 giây</p>
+            <p className="text-xs text-zinc-500 text-center">{t("common.highResWait")}</p>
           )}
 
           {error && (
-            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
-              {error}
-            </div>
+            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">{error}</div>
           )}
 
           {result && result.images.length > 0 && (
             <div className="space-y-3 pt-4">
               {result.partial && (
-                <p className="text-xs text-amber-400">Một số ảnh bị lỗi, chỉ tạo được {result.images.length} ảnh</p>
+                <p className="text-xs text-amber-400">{t("generate.partial", { count: result.images.length })}</p>
               )}
               <div className={result.images.length === 1 ? "" : "grid grid-cols-2 gap-3"}>
                 {result.images.map((img) => (
                   <div key={img.id} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                    <a href={`/api/images/${img.id}`} target="_blank" rel="noopener noreferrer" title="Mở ảnh trong tab mới">
+                    <a href={`/api/images/${img.id}`} target="_blank" rel="noopener noreferrer" title={t("common.openInNewTab")}>
                       <img src={img.url} alt={img.prompt} className="w-full cursor-zoom-in" />
                     </a>
                     <div className="flex items-center justify-between px-3 py-2">
-                      <span className="text-[10px] text-zinc-500">{img.provider_name} · {img.model}</span>
+                      <span className="text-[10px] text-zinc-500">
+                        {img.provider_name} · {img.model}
+                      </span>
                       <div className="flex items-center gap-1">
                         <div className="inline-flex items-center gap-0.5 rounded-md bg-zinc-800 p-0.5">
-                          <button onClick={() => setDownloadFormat("webp")}
-                            className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "webp" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+                          <button
+                            onClick={() => setDownloadFormat("webp")}
+                            className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "webp" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}
+                          >
                             WebP
                           </button>
-                          <button onClick={() => setDownloadFormat("jpg")}
-                            className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "jpg" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+                          <button
+                            onClick={() => setDownloadFormat("jpg")}
+                            className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "jpg" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}
+                          >
                             JPG
                           </button>
                         </div>
@@ -423,7 +469,7 @@ export default function GeneratePage() {
                           download={`img-${img.id}.${downloadFormat}`}
                           className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded-md text-[10px] text-zinc-300 transition-colors"
                         >
-                          Tải
+                          {t("common.downloadShort")}
                         </a>
                       </div>
                     </div>
@@ -432,36 +478,55 @@ export default function GeneratePage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-zinc-500">
-                  {result.images.length} ảnh · {result.charged_vnd > 0 ? formatVnd(result.charged_vnd) : "Miễn phí"}
+                  {t("generate.resultSummary", {
+                    count: result.images.length,
+                    cost: result.charged_vnd > 0 ? money(result.charged_vnd) : t("common.free"),
+                  })}
                 </span>
                 <button
                   onClick={resetResult}
                   className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-300 transition-colors cursor-pointer"
                 >
-                  Tạo ảnh khác
+                  {t("generate.createAnother")}
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        <p className="text-xs text-zinc-600 text-center mt-8">Ctrl+Enter để tạo ảnh nhanh</p>
+        <p className="text-xs text-zinc-600 text-center mt-8">{t("generate.ctrlEnter")}</p>
       </main>
     </AppShell>
   );
 }
 
-function Select({ label, value, onChange, options, disabled = false }: {
-  label: string; value: string; onChange: (v: string) => void;
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
   options: { value: string; label: string }[];
   disabled?: boolean;
 }) {
   return (
     <label className="flex items-center gap-2 text-sm text-zinc-400">
       {label}
-      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
-        className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed">
-        {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
       </select>
     </label>
   );

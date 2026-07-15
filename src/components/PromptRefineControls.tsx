@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useT } from "@/i18n";
 
 interface PromptRefineControlsProps {
   prompt: string;
@@ -19,6 +20,7 @@ export default function PromptRefineControls({
   resolution,
   disabled = false,
 }: PromptRefineControlsProps) {
+  const t = useT();
   const [isRefining, setIsRefining] = useState(false);
   const [originalPrompt, setOriginalPrompt] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -41,12 +43,12 @@ export default function PromptRefineControls({
       });
       const data = await res.json();
       if (!res.ok || typeof data.prompt !== "string") {
-        throw new Error(data.error || "Không thể cải thiện prompt lúc này");
+        throw new Error(data.error || t("refine.failed"));
       }
       setOriginalPrompt((current) => current ?? promptBeforeRefine);
       onPromptChange(data.prompt);
     } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "Không thể cải thiện prompt lúc này");
+      setError(caught instanceof Error ? caught.message : t("refine.failed"));
     } finally {
       setIsRefining(false);
     }
@@ -68,7 +70,7 @@ export default function PromptRefineControls({
           disabled={disabled || isRefining || !prompt.trim()}
           className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
         >
-          {isRefining ? "Đang viết lại…" : "Viết lại prompt rõ hơn"}
+          {isRefining ? t("refine.refining") : t("refine.button")}
         </button>
         {originalPrompt !== null && (
           <button
@@ -77,14 +79,14 @@ export default function PromptRefineControls({
             disabled={disabled || isRefining}
             className="px-2 py-2 text-xs text-zinc-500 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
           >
-            Hoàn tác
+            {t("refine.undo")}
           </button>
         )}
-        <span className="text-[11px] text-zinc-600">Hỗ trợ tinh chỉnh prompt rõ nghĩa, giữ nguyên ý chính.</span>
+        <span className="text-[11px] text-zinc-600">{t("refine.hint")}</span>
       </div>
       {error && (
         <div className="rounded-lg border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
-          {error} Prompt hiện tại vẫn được giữ nguyên.
+          {error} {t("refine.kept")}
         </div>
       )}
     </div>

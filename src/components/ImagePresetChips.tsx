@@ -1,10 +1,12 @@
 "use client";
 
-const PRESETS = [
-  { id: "sq1k", label: "Vuông 1K", aspectRatio: "1:1", resolution: "1K" },
-  { id: "story2k", label: "Story 2K", aspectRatio: "9:16", resolution: "2K" },
-  { id: "wide2k", label: "Ngang 2K", aspectRatio: "16:9", resolution: "2K" },
-  { id: "wide4k", label: "Ngang 4K", aspectRatio: "16:9", resolution: "4K" },
+import { useT } from "@/i18n";
+
+const PRESET_IDS = [
+  { id: "sq1k", labelKey: "presets.sq1k" as const, aspectRatio: "1:1", resolution: "1K" },
+  { id: "story2k", labelKey: "presets.story2k" as const, aspectRatio: "9:16", resolution: "2K" },
+  { id: "wide2k", labelKey: "presets.wide2k" as const, aspectRatio: "16:9", resolution: "2K" },
+  { id: "wide4k", labelKey: "presets.wide4k" as const, aspectRatio: "16:9", resolution: "4K" },
 ];
 
 interface ImagePresetChipsProps {
@@ -22,13 +24,14 @@ export default function ImagePresetChips({
   disabled = false,
   onSelect,
 }: ImagePresetChipsProps) {
+  const t = useT();
   return (
-    <div className="flex flex-wrap gap-2" aria-label="Mẫu kích thước nhanh">
-      {PRESETS.map((preset) => {
+    <div className="flex flex-wrap gap-2" aria-label={t("presets.aria")}>
+      {PRESET_IDS.map((preset) => {
         const limited = preset.resolution === "4K" && maxResolution === "2K";
         const active = preset.aspectRatio === aspectRatio && preset.resolution === resolution;
         return (
-          <span key={preset.id} title={limited ? "Model tối đa 2K" : undefined}>
+          <span key={preset.id} title={limited ? t("presets.limited2k") : undefined}>
             <button
               type="button"
               aria-pressed={active}
@@ -40,7 +43,7 @@ export default function ImagePresetChips({
                   : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
               } disabled:border-zinc-800 disabled:bg-zinc-900/50 disabled:text-zinc-600`}
             >
-              {preset.label}
+              {t(preset.labelKey)}
             </button>
           </span>
         );

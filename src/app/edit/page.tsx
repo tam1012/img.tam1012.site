@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, DragEvent } from "react";
 import AppShell from "@/components/AppShell";
 import ImagePresetChips from "@/components/ImagePresetChips";
 import PromptRefineControls from "@/components/PromptRefineControls";
+import { formatVnd, useLocale, useT } from "@/i18n";
 
 interface Provider {
   id: string;
@@ -30,13 +31,8 @@ interface MeData {
   };
 }
 
-function formatVnd(value: number) {
-  return new Intl.NumberFormat("vi-VN").format(value) + "đ";
-}
-
 const MAX_EDIT_UPLOAD_BYTES = 9.5 * 1024 * 1024;
 const MAX_EDIT_UPLOAD_LABEL = "9.5MB";
-const LIMITED_2K_MESSAGE = "Model này chỉ hỗ trợ tối đa 2K. Vui lòng chọn 2K hoặc thấp hơn.";
 const ALL_RESOLUTION_OPTIONS = [
   { value: "1K", label: "1K (1024px)" },
   { value: "1.5K", label: "1.5K (1536px)" },
@@ -49,6 +45,9 @@ function totalFileSize(files: File[]) {
 }
 
 export default function EditPage() {
+  const t = useT();
+  const { locale } = useLocale();
+  const money = (value: number) => formatVnd(value, locale);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerId, setProviderId] = useState("");
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -73,6 +72,7 @@ export default function EditPage() {
     : ALL_RESOLUTION_OPTIONS;
   const walletReady = me !== null;
   const canAfford = walletReady && (me.user.role === "admin" || me.wallet.balance_vnd >= me.wallet.image_price_vnd);
+  const limited2kMessage = t("edit.limited2k");
 
   const fetchProviders = useCallback(async () => {
     const res = await fetch("/api/providers");
@@ -90,14 +90,17 @@ export default function EditPage() {
     if (res.ok) setMe(data);
   }, []);
 
-  useEffect(() => { fetchProviders(); fetchMe(); }, [fetchProviders, fetchMe]);
+  useEffect(() => {
+    fetchProviders();
+    fetchMe();
+  }, [fetchProviders, fetchMe]);
 
   useEffect(() => {
     if (isLimitedTo2K && resolution === "4K") {
       setResolution("2K");
-      setError(LIMITED_2K_MESSAGE);
+      setError(limited2kMessage);
     }
-  }, [isLimitedTo2K, resolution]);
+  }, [isLimitedTo2K, resolution, limited2kMessage]);
 
   useEffect(() => {
     function handlePaste(e: ClipboardEvent) {
@@ -122,16 +125,16 @@ export default function EditPage() {
   function addFiles(files: File[]) {
     const validFiles = files.filter((f) => f.type.startsWith("image/"));
     if (validFiles.length === 0) {
-      setError("Vui lòng chọn file ảnh");
+      setError(t("edit.needImage"));
       return;
     }
     const nextFiles = [...imageFiles, ...validFiles];
     if (nextFiles.length > maxEditImages) {
-      setError(`Provider này chỉ hỗ trợ chỉnh sửa tối đa ${maxEditImages} ảnh mỗi lần.`);
+      setError(t("edit.maxImages", { max: maxEditImages }));
       return;
     }
     if (totalFileSize(nextFiles) > MAX_EDIT_UPLOAD_BYTES) {
-      setError(`Tổng dung lượng ảnh tải lên quá lớn. Vui lòng dùng ảnh dưới ${MAX_EDIT_UPLOAD_LABEL} mỗi lần chỉnh sửa.`);
+      setError(t("edit.maxUpload", { size: MAX_EDIT_UPLOAD_LABEL }));
       return;
     }
     setError("");
@@ -160,15 +163,15 @@ export default function EditPage() {
   async function handleEdit() {
     if (imageFiles.length === 0 || !prompt.trim() || loading || !providerId) return;
     if (totalFileSize(imageFiles) > MAX_EDIT_UPLOAD_BYTES) {
-      setError(`Tổng dung lượng ảnh tải lên quá lớn. Vui lòng dùng ảnh dưới ${MAX_EDIT_UPLOAD_LABEL} mỗi lần chỉnh sửa.`);
+      setError(t("edit.maxUpload", { size: MAX_EDIT_UPLOAD_LABEL }));
       return;
     }
     if (isLimitedTo2K && resolution === "4K") {
-      setError(LIMITED_2K_MESSAGE);
+      setError(limited2kMessage);
       return;
     }
     if (imageFiles.length > maxEditImages) {
-      setError(`Provider này chỉ hỗ trợ chỉnh sửa tối đa ${maxEditImages} ảnh mỗi lần.`);
+      setError(t("edit.maxImages", { max: maxEditImages }));
       return;
     }
     setLoading(true);
@@ -200,7 +203,7 @@ export default function EditPage() {
       fetchMe();
       window.dispatchEvent(new Event("wallet-refresh"));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Có lỗi xảy ra");
+      setError(e instanceof Error ? e.message : t("common.errorGeneric"));
     } finally {
       setLoading(false);
     }
@@ -214,10 +217,10 @@ export default function EditPage() {
     return (
       <AppShell>
         <main className="max-w-3xl mx-auto px-4 py-16 text-center">
-          <p className="text-zinc-400 mb-2">Chưa có AI provider nào</p>
-          <p className="text-sm text-zinc-500 mb-4">Thêm provider trong phần Cài đặt để bắt đầu</p>
+          <p className="text-zinc-400 mb-2">{t("edit.noProvider")}</p>
+          <p className="text-sm text-zinc-500 mb-4">{t("edit.noProviderHint")}</p>
           <a href="/settings" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm transition-colors inline-block">
-            Đi tới Cài đặt
+            {t("edit.goSettings")}
           </a>
         </main>
       </AppShell>
@@ -231,11 +234,17 @@ export default function EditPage() {
           <div
             onClick={() => fileInputRef.current?.click()}
             onDrop={handleDrop}
-            onDragOver={(e: DragEvent) => { e.preventDefault(); setDragging(true); }}
+            onDragOver={(e: DragEvent) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
             onDragLeave={() => setDragging(false)}
             className={`relative border-2 border-dashed rounded-xl transition-colors cursor-pointer overflow-hidden ${
-              dragging ? "border-blue-500 bg-blue-500/5"
-                : imagePreviews.length > 0 ? "border-zinc-700" : "border-zinc-700 hover:border-zinc-600 bg-zinc-900"
+              dragging
+                ? "border-blue-500 bg-blue-500/5"
+                : imagePreviews.length > 0
+                  ? "border-zinc-700"
+                  : "border-zinc-700 hover:border-zinc-600 bg-zinc-900"
             }`}
           >
             {imagePreviews.length > 0 ? (
@@ -243,9 +252,16 @@ export default function EditPage() {
                 <div className={`grid gap-2 ${imagePreviews.length === 1 ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-3"}`}>
                   {imagePreviews.map((preview, i) => (
                     <div key={i} className="relative group">
-                      <img src={preview} alt={`Ảnh ${i + 1}`} className={`w-full rounded-lg object-contain ${imagePreviews.length === 1 ? "max-h-96" : "max-h-48"}`} />
+                      <img
+                        src={preview}
+                        alt={t("edit.altImage", { n: i + 1 })}
+                        className={`w-full rounded-lg object-contain ${imagePreviews.length === 1 ? "max-h-96" : "max-h-48"}`}
+                      />
                       <button
-                        onClick={(e) => { e.stopPropagation(); removeImage(i); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeImage(i);
+                        }}
                         className="absolute top-1 right-1 w-6 h-6 bg-black/70 hover:bg-red-600 rounded-full flex items-center justify-center text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                       >
                         ×
@@ -253,30 +269,48 @@ export default function EditPage() {
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-zinc-500 text-center mt-2">Click để thêm ảnh · Ctrl+V để dán</p>
+                <p className="text-xs text-zinc-500 text-center mt-2">{t("edit.addHint")}</p>
               </div>
             ) : (
               <div className="py-16 text-center">
                 <svg className="mx-auto h-10 w-10 text-zinc-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"
+                  />
                 </svg>
-                <p className="text-sm text-zinc-400">Kéo thả ảnh vào đây, click để chọn, hoặc Ctrl+V để dán</p>
-                <p className="text-xs text-zinc-600 mt-1">PNG, JPG, WEBP · Có thể chọn nhiều ảnh</p>
+                <p className="text-sm text-zinc-400">{t("edit.dropHint")}</p>
+                <p className="text-xs text-zinc-600 mt-1">{t("edit.dropFormats")}</p>
               </div>
             )}
-            <input ref={fileInputRef} type="file" accept="image/*" multiple={maxEditImages > 1} className="hidden"
-              onChange={(e) => { const files = Array.from(e.target.files || []); if (files.length > 0) addFiles(files); e.target.value = ""; }} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple={maxEditImages > 1}
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length > 0) addFiles(files);
+                e.target.value = "";
+              }}
+            />
           </div>
 
           <p className="text-xs text-zinc-600">
-            {selectedProvider?.name} · tối đa {maxEditImages} ảnh · tổng dung lượng dưới {MAX_EDIT_UPLOAD_LABEL}
+            {t("edit.limits", {
+              provider: selectedProvider?.name || "",
+              max: maxEditImages,
+              size: MAX_EDIT_UPLOAD_LABEL,
+            })}
           </p>
 
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Mô tả cách bạn muốn chỉnh sửa ảnh..."
+            placeholder={t("edit.placeholder")}
             rows={3}
             className="w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-colors resize-none text-[15px] leading-relaxed"
           />
@@ -308,72 +342,115 @@ export default function EditPage() {
               aria-expanded={showAdvanced}
               className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left cursor-pointer"
             >
-              <span className="text-sm text-zinc-300">{showAdvanced ? "▾" : "▸"} Tuỳ chọn nâng cao</span>
-              <span className="truncate text-xs text-zinc-600">{selectedProvider?.name} · {aspectRatio} · {resolution}</span>
+              <span className="text-sm text-zinc-300">
+                {showAdvanced ? "▾" : "▸"} {t("common.advancedOptions")}
+              </span>
+              <span className="truncate text-xs text-zinc-600">
+                {selectedProvider?.name} · {aspectRatio} · {resolution}
+              </span>
             </button>
             {showAdvanced && (
               <div className="flex flex-wrap items-center gap-3 border-t border-zinc-800 px-4 py-4">
                 <label className="flex items-center gap-2 text-sm text-zinc-400">
-                  Provider
-                  <select value={providerId} onChange={(e) => setProviderId(e.target.value)}
-                    className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer">
-                    {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {t("common.provider")}
+                  <select
+                    value={providerId}
+                    onChange={(e) => setProviderId(e.target.value)}
+                    className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer"
+                  >
+                    {providers.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
                   </select>
                 </label>
-                <Select label="Tỷ lệ" value={aspectRatio} onChange={setAspectRatio} options={[
-                  { value: "auto", label: "Tự động" },
-                  { value: "1:1", label: "Vuông (1:1)" },
-                  { value: "3:2", label: "Ngang (3:2)" },
-                  { value: "4:3", label: "Ngang cổ điển (4:3)" },
-                  { value: "16:9", label: "Ngang rộng (16:9)" },
-                  { value: "2:3", label: "Dọc (2:3)" },
-                  { value: "3:4", label: "Dọc cổ điển (3:4)" },
-                  { value: "9:16", label: "Dọc cao (9:16)" },
-                ]} />
-                <Select label="Độ phân giải" value={resolution} onChange={setResolution} options={resolutionOptions} />
-                <Select label="Chất lượng" value={quality} onChange={setQuality} options={[
-                  { value: "standard", label: "Tiêu chuẩn" },
-                  { value: "high", label: "Cao" },
-                ]} />
-                <p className="w-full text-xs text-zinc-600">Cùng giá · “Cao” có thể chậm hơn và chi tiết hơn, tuỳ model.</p>
+                <Select
+                  label={t("common.aspectRatio")}
+                  value={aspectRatio}
+                  onChange={setAspectRatio}
+                  options={[
+                    { value: "auto", label: t("common.ratioAuto") },
+                    { value: "1:1", label: t("common.ratioSquare") },
+                    { value: "3:2", label: t("common.ratioLandscape32") },
+                    { value: "4:3", label: t("common.ratioLandscape43") },
+                    { value: "16:9", label: t("common.ratioLandscape169") },
+                    { value: "2:3", label: t("common.ratioPortrait23") },
+                    { value: "3:4", label: t("common.ratioPortrait34") },
+                    { value: "9:16", label: t("common.ratioPortrait916") },
+                  ]}
+                />
+                <Select label={t("common.resolution")} value={resolution} onChange={setResolution} options={resolutionOptions} />
+                <Select
+                  label={t("common.quality")}
+                  value={quality}
+                  onChange={setQuality}
+                  options={[
+                    { value: "standard", label: t("common.qualityStandard") },
+                    { value: "high", label: t("common.qualityHigh") },
+                  ]}
+                />
+                <p className="w-full text-xs text-zinc-600">{t("common.qualityHint")}</p>
               </div>
             )}
           </div>
 
           <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
-            <span>Giá: {formatVnd(me?.wallet.image_price_vnd ?? 100)}/ảnh</span>
-            <span>{!walletReady ? "Đang tải số dư..." : me.user.role === "admin" ? "Admin miễn phí" : `Còn ${me.wallet.remaining_images} ảnh`}</span>
+            <span>{t("common.pricePerImage", { price: money(me?.wallet.image_price_vnd ?? 100) })}</span>
+            <span>
+              {!walletReady
+                ? t("common.balanceLoading")
+                : me.user.role === "admin"
+                  ? t("common.adminFree")
+                  : t("common.remainingImages", { count: me.wallet.remaining_images })}
+            </span>
           </div>
           {walletReady && !canAfford && (
             <div className="rounded-xl border border-amber-900/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">
-              Số dư không đủ, vui lòng liên hệ admin để nạp tiền.
+              {t("common.insufficientBalance")}
             </div>
           )}
-          {walletReady && me.user.role !== "admin" && canAfford && me.wallet.remaining_images > 0 && me.wallet.remaining_images <= 3 && (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-xs text-zinc-400">
-              Còn {me.wallet.remaining_images} ảnh. Liên hệ admin để nạp thêm khi cần.
-            </div>
-          )}
+          {walletReady &&
+            me.user.role !== "admin" &&
+            canAfford &&
+            me.wallet.remaining_images > 0 &&
+            me.wallet.remaining_images <= 3 && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-xs text-zinc-400">
+                {t("common.lowBalanceHint", { count: me.wallet.remaining_images })}
+              </div>
+            )}
           {imageFiles.length > maxEditImages && (
             <div className="rounded-xl border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-200">
-              Provider này chỉ hỗ trợ tối đa {maxEditImages} ảnh. Vui lòng xoá bớt ảnh trước khi chỉnh sửa.
+              {t("edit.maxImagesTrim", { max: maxEditImages })}
             </div>
           )}
 
           <button
             onClick={handleEdit}
-            disabled={loading || imageFiles.length === 0 || imageFiles.length > maxEditImages || !prompt.trim() || !providerId || !walletReady || !canAfford}
+            disabled={
+              loading ||
+              imageFiles.length === 0 ||
+              imageFiles.length > maxEditImages ||
+              !prompt.trim() ||
+              !providerId ||
+              !walletReady ||
+              !canAfford
+            }
             className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded-xl transition-colors text-sm font-medium cursor-pointer disabled:cursor-not-allowed"
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="spinner" />
-                Đang chỉnh sửa...
+                {t("edit.editing")}
               </span>
-            ) : `Chỉnh sửa ảnh${imageFiles.length > 1 ? ` (${imageFiles.length} ảnh)` : ""}`}
+            ) : imageFiles.length > 1 ? (
+              t("edit.submitCount", { count: imageFiles.length })
+            ) : (
+              t("edit.submit")
+            )}
           </button>
           {loading && resolution === "4K" && (
-            <p className="text-xs text-zinc-500 text-center">Ảnh độ phân giải cao có thể mất 30-60 giây</p>
+            <p className="text-xs text-zinc-500 text-center">{t("common.highResWait")}</p>
           )}
 
           {error && (
@@ -385,61 +462,86 @@ export default function EditPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {imagePreviews.length > 0 && (
                   <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                    <p className="text-xs text-zinc-500 px-3 py-2 border-b border-zinc-800">Ảnh gốc{imagePreviews.length > 1 ? ` (${imagePreviews.length})` : ""}</p>
+                    <p className="text-xs text-zinc-500 px-3 py-2 border-b border-zinc-800">
+                      {imagePreviews.length > 1
+                        ? t("edit.originalCount", { count: imagePreviews.length })
+                        : t("edit.original")}
+                    </p>
                     <div className={imagePreviews.length > 1 ? "grid grid-cols-2 gap-1 p-1" : ""}>
                       {imagePreviews.map((p, i) => (
-                        <img key={i} src={p} alt={`Gốc ${i + 1}`} className="w-full" />
+                        <img key={i} src={p} alt={t("edit.altOriginal", { n: i + 1 })} className="w-full" />
                       ))}
                     </div>
                   </div>
                 )}
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                  <p className="text-xs text-zinc-500 px-3 py-2 border-b border-zinc-800">Kết quả</p>
-                  <a href={`/api/images/${result.id}`} target="_blank" rel="noopener noreferrer" title="Mở ảnh trong tab mới">
+                  <p className="text-xs text-zinc-500 px-3 py-2 border-b border-zinc-800">{t("edit.result")}</p>
+                  <a href={`/api/images/${result.id}`} target="_blank" rel="noopener noreferrer" title={t("common.openInNewTab")}>
                     <img src={result.url} alt={result.prompt} className="w-full cursor-zoom-in" />
                   </a>
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">{result.provider_name} · {result.model}</span>
+                <span className="text-xs text-zinc-500">
+                  {result.provider_name} · {result.model}
+                </span>
                 <div className="flex items-center gap-1">
                   <div className="inline-flex items-center gap-0.5 rounded-md bg-zinc-800 p-0.5">
-                    <button onClick={() => setDownloadFormat("webp")}
-                      className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "webp" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+                    <button
+                      onClick={() => setDownloadFormat("webp")}
+                      className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "webp" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}
+                    >
                       WebP
                     </button>
-                    <button onClick={() => setDownloadFormat("jpg")}
-                      className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "jpg" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}>
+                    <button
+                      onClick={() => setDownloadFormat("jpg")}
+                      className={`px-1.5 py-1 rounded text-[10px] transition-colors cursor-pointer ${downloadFormat === "jpg" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-700"}`}
+                    >
                       JPG
                     </button>
                   </div>
                   <a
                     href={downloadFormat === "jpg" ? `/api/images/${result.id}?format=jpg` : result.url}
                     download={`img-edit-${result.id}.${downloadFormat}`}
-                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-300 transition-colors">
-                    Tải về
+                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-300 transition-colors"
+                  >
+                    {t("common.download")}
                   </a>
                 </div>
               </div>
             </div>
           )}
         </div>
-        <p className="text-xs text-zinc-600 text-center mt-8">Ctrl+Enter để chỉnh sửa nhanh · Ctrl+V để dán ảnh</p>
+        <p className="text-xs text-zinc-600 text-center mt-8">{t("edit.footerHint")}</p>
       </main>
     </AppShell>
   );
 }
 
-function Select({ label, value, onChange, options }: {
-  label: string; value: string; onChange: (v: string) => void;
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
   options: { value: string; label: string }[];
 }) {
   return (
     <label className="flex items-center gap-2 text-sm text-zinc-400">
       {label}
-      <select value={value} onChange={(e) => onChange(e.target.value)}
-        className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer">
-        {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-sm cursor-pointer"
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
       </select>
     </label>
   );

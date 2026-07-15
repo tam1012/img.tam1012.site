@@ -1,10 +1,14 @@
+"use client";
+
 import { ADMIN_CONTACT } from "@/lib/site-settings";
+import { useT } from "@/i18n";
 
 export default function SiteFooter() {
+  const t = useT();
   return (
     <footer className="border-t border-zinc-800 mt-auto">
       <div className="max-w-6xl mx-auto px-4 py-3 text-center text-xs text-zinc-500">
-        Liên hệ admin: Telegram{" "}
+        {t("common.contactAdmin")}{" "}
         <a
           href={ADMIN_CONTACT.telegramUrl}
           target="_blank"
