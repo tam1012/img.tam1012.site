@@ -41,6 +41,19 @@ function pad(value: string, width: number): string {
   return value.length >= width ? value : value + " ".repeat(width - value.length);
 }
 
+// Chuỗi thời gian từ bridge là UTC. Đổi sang giờ Việt Nam (UTC+7) để dễ đọc.
+function toVietnamTime(iso: string | null): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  const vn = new Date(d.getTime() + 7 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${vn.getUTCFullYear()}-${p(vn.getUTCMonth() + 1)}-${p(vn.getUTCDate())} ${p(vn.getUTCHours())}:${p(vn.getUTCMinutes())}`;
+}
+
+// Chỉ trạng thái hỏng thật mới có lỗi cần hiện; healthy/busy thì bỏ qua failure_code cũ.
+const FAILED_STATES = new Set(["reauth_required", "cooldown", "blocked", "disabled"]);
+
 async function main() {
   const cfg = loadConfig();
   const sshBase = ["-i", cfg.sshKey, "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=20"];
@@ -85,8 +98,8 @@ async function main() {
     email: a.email || "(chưa có email)",
     alias: a.alias,
     status: a.status,
-    lastUsed: a.lastUsedAt ? a.lastUsedAt.replace("T", " ").slice(0, 16) : "-",
-    failure: a.failureCode || "-",
+    lastUsed: toVietnamTime(a.lastUsedAt),
+    failure: FAILED_STATES.has(a.status) && a.failureCode ? a.failureCode : "-",
   }));
   const w = {
     email: Math.max(5, ...rows.map((r) => r.email.length)),

@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { AccountRepository } from "../accounts/repository.js";
 import type { BrowserWorkerPool } from "../browser/worker.js";
 import type { BridgeConfig } from "../config.js";
-import { readSession, discoverProjectMeta } from "../flow/session-broker.js";
+import { readSession, discoverProjectMeta, readAccountEmail } from "../flow/session-broker.js";
 import {
   decryptEnrollment,
   type EncryptedEnrollment,
@@ -130,12 +130,18 @@ export function registerAdminRoutes(
           );
         }
       }
+      // Điền email cho account cũ còn thiếu (tạo trước khi có tính năng email).
+      if (!account.email) {
+        const email = await readAccountEmail(browser.page);
+        if (email) deps.accounts.setEmail(id, email);
+      }
       await browser.persist().catch(() => undefined);
       deps.accounts.markVerified(id);
       const updated = deps.accounts.get(id)!;
       return {
         id,
         alias: updated.alias,
+        email: updated.email,
         status: "healthy",
         authenticated: session.summary.authenticated,
         hasAisandbox: session.summary.hasAisandbox,

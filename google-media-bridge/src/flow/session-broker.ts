@@ -18,6 +18,39 @@ export type SessionBrokerResult = {
   accessToken: string;
 };
 
+// Đọc email account Google để điền nhãn cho account cũ (tạo trước khi có email).
+// Chạy trong trang; token không rời trình duyệt. Session Flow trước, userinfo sau.
+export async function readAccountEmail(page: Page): Promise<string | null> {
+  return page
+    .evaluate(async ([endpoint]) => {
+      try {
+        const res = await fetch(endpoint, { credentials: "include" });
+        if (!res.ok) return null;
+        const session = (await res.json()) as {
+          access_token?: string;
+          user?: { email?: string };
+          email?: string;
+        };
+        if (session?.user?.email) return session.user.email;
+        if (session?.email) return session.email;
+        const token = session?.access_token;
+        if (token) {
+          const info = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (info.ok) {
+            const data = (await info.json()) as { email?: string };
+            if (data?.email) return data.email;
+          }
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    }, [SESSION_ENDPOINT] as const)
+    .catch(() => null);
+}
+
 export async function readSession(page: Page): Promise<SessionBrokerResult> {
   await page.goto(FLOW_URL, { waitUntil: "domcontentloaded" }).catch(() => undefined);
   const result = await page.evaluate(
