@@ -168,6 +168,8 @@ const vi = {
     waitHint: "Có thể mất 2–10 phút. Vui lòng không đóng trang.",
     needImage: "Vui lòng chọn ảnh gốc",
     needPrompt: "Vui lòng nhập mô tả",
+    imageFormat: "Chỉ hỗ trợ ảnh JPEG hoặc PNG. Vui lòng chọn lại file khác.",
+    imageFormatHint: "Chỉ nhận JPEG hoặc PNG.",
     downloadFailed: "Tải video thất bại",
     sourceAlt: "Ảnh gốc",
     blurbVeo31: "Chất lượng cao, hỗ trợ âm thanh",

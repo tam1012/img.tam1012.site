@@ -170,6 +170,8 @@ const en: Messages = {
     waitHint: "This may take 2–10 minutes. Please keep this page open.",
     needImage: "Please choose a source image",
     needPrompt: "Please enter a description",
+    imageFormat: "Only JPEG or PNG images are supported. Please choose another file.",
+    imageFormatHint: "JPEG or PNG only.",
     downloadFailed: "Failed to download video",
     sourceAlt: "Source image",
     blurbVeo31: "High quality, with audio",

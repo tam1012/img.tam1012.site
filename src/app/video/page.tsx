@@ -70,6 +70,14 @@ const XAI_IMAGE_ONLY = "grok-imagine-video-1.5-preview";
 const XAI_TEXT_ONLY = "grok-imagine-video";
 const VEO_31_MODELS = new Set(["veo-3.1-generate-001", "veo-3.1-fast-generate-001"]);
 const DEFAULT_MODEL = "veo-3.1-fast-generate-001";
+const ALLOWED_SOURCE_IMAGE_TYPES = new Set(["image/jpeg", "image/png"]);
+
+function isAllowedSourceImage(file: File): boolean {
+  if (ALLOWED_SOURCE_IMAGE_TYPES.has(file.type)) return true;
+  // Một số trình duyệt để type rỗng — fallback theo đuôi file.
+  const name = file.name.toLowerCase();
+  return name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png");
+}
 
 const RESOLUTIONS_BY_MODEL: Record<string, { value: string; label: string }[]> = {
   "veo-3.1-generate-001": [
@@ -195,8 +203,16 @@ export default function VideoPage() {
 
   function handleImageChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] || null;
-    setImageFile(file);
     if (imagePreview) URL.revokeObjectURL(imagePreview);
+    if (file && !isAllowedSourceImage(file)) {
+      setImageFile(null);
+      setImagePreview("");
+      setError(t("video.imageFormat"));
+      event.target.value = "";
+      return;
+    }
+    setError("");
+    setImageFile(file);
     setImagePreview(file ? URL.createObjectURL(file) : "");
   }
 
@@ -204,6 +220,10 @@ export default function VideoPage() {
     if (loading) return;
     if (mode === "image" && !imageFile) {
       setError(t("video.needImage"));
+      return;
+    }
+    if (mode === "image" && imageFile && !isAllowedSourceImage(imageFile)) {
+      setError(t("video.imageFormat"));
       return;
     }
     if (!prompt.trim() && mode === "text") {
@@ -310,11 +330,12 @@ export default function VideoPage() {
             <div className="space-y-2 rounded-xl border border-dashed border-zinc-700 bg-zinc-900/60 p-3">
               <input
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,.jpg,.jpeg,.png"
                 onChange={handleImageChange}
                 disabled={loading}
                 className="block w-full text-sm text-zinc-400 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-zinc-800 file:px-4 file:py-2 file:text-sm file:text-zinc-200 hover:file:bg-zinc-700 cursor-pointer disabled:opacity-60"
               />
+              <p className="text-xs text-zinc-500">{t("video.imageFormatHint")}</p>
               {imagePreview && (
                 <div className="max-w-xs overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
                   {/* eslint-disable-next-line @next/next/no-img-element */}

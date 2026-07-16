@@ -25,6 +25,24 @@ import { isGenerateRateLimited } from "@/lib/rate-limit";
 export const maxDuration = 600;
 
 const MAX_IMAGE_UPLOAD_BYTES = 9.5 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME = new Set(["image/jpeg", "image/jpg", "image/png"]);
+
+function isJpegOrPngBuffer(buffer: Buffer): boolean {
+  // JPEG: FF D8 FF · PNG: 89 50 4E 47
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return true;
+  }
+  if (
+    buffer.length >= 4
+    && buffer[0] === 0x89
+    && buffer[1] === 0x50
+    && buffer[2] === 0x4e
+    && buffer[3] === 0x47
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export async function POST(req: NextRequest) {
   const user = await requireUser();
@@ -102,7 +120,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Ảnh tải lên quá lớn (tối đa 9.5MB)" }, { status: 413 });
       }
       const buffer = Buffer.from(await imageFile.arrayBuffer());
-      image = { data: buffer.toString("base64"), mimeType: imageFile.type || "image/jpeg" };
+      if (!isJpegOrPngBuffer(buffer)) {
+        return NextResponse.json(
+          { error: "Chỉ hỗ trợ ảnh JPEG hoặc PNG. Vui lòng chọn lại file khác." },
+          { status: 400 }
+        );
+      }
+      const mimeType = ALLOWED_IMAGE_MIME.has((imageFile.type || "").toLowerCase())
+        ? imageFile.type.toLowerCase().replace("image/jpg", "image/jpeg")
+        : (buffer[0] === 0xff ? "image/jpeg" : "image/png");
+      image = { data: buffer.toString("base64"), mimeType };
     }
 
     const mode: "text" | "image" = image ? "image" : "text";
