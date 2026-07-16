@@ -19,6 +19,10 @@ jobs:
             set -e
             cd ~/img-studio
 
+            # Ghi commit hiện tại (TRƯỚC khi cập nhật) để biết google-media-bridge có đổi không.
+            # Rỗng nếu chưa có .git (fresh clone) → sẽ rebuild bridge.
+            BRIDGE_BEFORE=$(git rev-parse HEAD 2>/dev/null || echo "")
+
             # Repo private: VPS phải fetch bằng SSH deploy key (git@github.com),
             # không dùng HTTPS anonymous — sẽ fail "could not read Username".
             if [ ! -d ".git" ]; then
@@ -96,6 +100,20 @@ jobs:
 
             docker compose build --no-cache app
             docker compose up -d --remove-orphans
+
+            # google-media-bridge là compose project riêng (image :local), KHÔNG do compose app quản lý.
+            # Chỉ rebuild khi thư mục google-media-bridge/ có thay đổi (tránh restart bridge vô cớ,
+            # vì restart làm đứt job video Flow đang chạy dở). Fresh clone (BRIDGE_BEFORE rỗng) → rebuild.
+            BRIDGE_AFTER=$(git rev-parse HEAD)
+            if [ -z "$BRIDGE_BEFORE" ] || ! git diff --quiet "$BRIDGE_BEFORE" "$BRIDGE_AFTER" -- google-media-bridge; then
+              echo "google-media-bridge changed → rebuild"
+              cd google-media-bridge
+              docker compose -p google-media-bridge -f docker-compose.bridge.yml build
+              docker compose -p google-media-bridge -f docker-compose.bridge.yml up -d
+              cd ~/img-studio
+            else
+              echo "google-media-bridge unchanged → skip rebuild"
+            fi
 
             # Dọn build cache và image cũ sau mỗi lần build (tránh đầy ổ đĩa)
             docker builder prune -f
