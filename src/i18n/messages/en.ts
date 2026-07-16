@@ -181,6 +181,9 @@ const en: Messages = {
     blurbVeo20: "720p compatible",
     blurbGrok: "Generate video from text",
     blurbGrok15: "Animate from image",
+    blurbFlowFast: "Veo 3.1 via Flow, fast",
+    blurbFlowLite: "Veo 3.1 via Flow, lite",
+    blurbFlowQuality: "Veo 3.1 via Flow, high quality",
   },
   gallery: {
     images: "Images",

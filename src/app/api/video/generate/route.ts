@@ -14,6 +14,7 @@ import {
   isXaiTextToVideoOnly,
   isPublicVideoModel,
   getAllowedVideoDurations,
+  isFlowVideoModel,
   createVideoRecord,
   completeVideoRecord,
   failVideoRecord,
@@ -83,8 +84,9 @@ export async function POST(req: NextRequest) {
     }
 
     const xai = isXaiModel(model);
+    const flow = isFlowVideoModel(model);
 
-    if (!xai && !isValidVideoAccount(account)) {
+    if (!xai && !flow && !isValidVideoAccount(account)) {
       return NextResponse.json({ error: "Tài khoản Vertex không hợp lệ" }, { status: 400 });
     }
 
@@ -94,7 +96,7 @@ export async function POST(req: NextRequest) {
       : (allowedDurations.includes(8) ? 8 : allowedDurations[0]);
 
     let resolution = "";
-    if (!xai) {
+    if (!xai && !flow) {
       resolution = (formData.get("resolution") as string) || VIDEO_RESOLUTIONS_BY_MODEL[model]?.[0] || "720p";
       if (!isValidResolution(model, resolution)) {
         return NextResponse.json({ error: `Chất lượng ${resolution} không hỗ trợ cho model này` }, { status: 400 });
@@ -143,7 +145,7 @@ export async function POST(req: NextRequest) {
       resolution,
       durationSeconds: duration,
       mode,
-      account: xai ? "xai" : account,
+      account: xai ? "xai" : flow ? "flow-bridge" : account,
       costVnd,
     });
     videoId = video.id;

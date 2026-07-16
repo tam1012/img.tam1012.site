@@ -79,6 +79,7 @@ export async function generateFlowImageViaRoute(input: {
 
 export async function createFlowVideoViaRoute(input: {
   prompt: string;
+  model?: string;
   duration?: 4 | 6 | 8 | 10;
   aspectRatio?: "16:9" | "9:16";
   env?: Record<string, string | undefined>;
@@ -95,14 +96,62 @@ export async function createFlowVideoViaRoute(input: {
       Authorization: `Bearer ${route.apiKey}`,
     },
     body: JSON.stringify({
-      model: route.model,
+      model: input.model || route.model,
       prompt: input.prompt,
       duration: input.duration ?? 4,
       aspect_ratio: input.aspectRatio ?? "16:9",
     }),
   });
-  if (!res.ok) throw new Error(`FLOW_UPSTREAM_HTTP_${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const err = (await res.json()) as { error?: { message?: string; code?: string } };
+      detail = err.error?.message || err.error?.code || "";
+    } catch { detail = ""; }
+    throw new Error(
+      detail
+        ? `FLOW_UPSTREAM_HTTP_${res.status}: ${detail.slice(0, 160)}`
+        : `FLOW_UPSTREAM_HTTP_${res.status}`,
+    );
+  }
   const json = (await res.json()) as { request_id?: string };
   if (!json.request_id) throw new Error("FLOW_UPSTREAM_EMPTY");
   return { request_id: json.request_id };
+}
+
+export async function pollFlowVideoViaRoute(input: {
+  requestId: string;
+  env?: Record<string, string | undefined>;
+  fetchImpl?: typeof fetch;
+}): Promise<{ status: "pending" | "done" | "failed"; progress?: number; error?: string }> {
+  const env = input.env ?? process.env;
+  const route = activeRoute(resolveFlowVideoRoute(env));
+  if (!route) throw new Error("FLOW_DISABLED");
+  const fetchFn = input.fetchImpl ?? fetch;
+  const res = await fetchFn(`${route.baseUrl}/videos/${input.requestId}`, {
+    headers: { Authorization: `Bearer ${route.apiKey}` },
+  });
+  if (!res.ok) throw new Error(`FLOW_UPSTREAM_HTTP_${res.status}`);
+  const json = (await res.json()) as { status: string; progress?: number; error?: string };
+  return {
+    status: json.status === "done" ? "done" : json.status === "failed" ? "failed" : "pending",
+    progress: json.progress,
+    error: json.error,
+  };
+}
+
+export async function downloadFlowVideoContentViaRoute(input: {
+  requestId: string;
+  env?: Record<string, string | undefined>;
+  fetchImpl?: typeof fetch;
+}): Promise<Buffer> {
+  const env = input.env ?? process.env;
+  const route = activeRoute(resolveFlowVideoRoute(env));
+  if (!route) throw new Error("FLOW_DISABLED");
+  const fetchFn = input.fetchImpl ?? fetch;
+  const res = await fetchFn(`${route.baseUrl}/videos/${input.requestId}/content`, {
+    headers: { Authorization: `Bearer ${route.apiKey}` },
+  });
+  if (!res.ok) throw new Error(`FLOW_UPSTREAM_HTTP_${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }

@@ -5,6 +5,11 @@ import { VideoStatus } from "@prisma/client";
 import { prisma } from "./prisma";
 import { logRequestStart, logRequestFailed, markRequestLogVideoDeleted } from "./request-log";
 import { XAI_BASE_URL, isXaiQuotaError, runWithXaiAccount, xaiAuthPool } from "./xai-auth-pool";
+import {
+  createFlowVideoViaRoute,
+  pollFlowVideoViaRoute,
+  downloadFlowVideoContentViaRoute,
+} from "./flow-client";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const VIDEOS_DIR = path.join(DATA_DIR, "videos");
@@ -23,11 +28,18 @@ export const XAI_VIDEO_MODELS = [
   "grok-imagine-video-1.5-preview",
 ] as const;
 
-export const VIDEO_MODELS = [...VEO_MODELS, ...XAI_VIDEO_MODELS] as const;
+export const FLOW_VIDEO_MODELS = [
+  "flow-veo-3.1-fast",
+  "flow-veo-3.1-lite",
+  "flow-veo-3.1-quality",
+] as const;
+
+export const VIDEO_MODELS = [...VEO_MODELS, ...XAI_VIDEO_MODELS, ...FLOW_VIDEO_MODELS] as const;
 export const PUBLIC_VIDEO_MODELS = [
   "veo-3.1-fast-generate-001",
   "grok-imagine-video",
   "grok-imagine-video-1.5-preview",
+  "flow-veo-3.1-fast",
 ] as const;
 
 export type VideoModel = (typeof VIDEO_MODELS)[number];
@@ -47,12 +59,12 @@ export function isVeo31Family(model: string): boolean {
   return model === "veo-3.1-generate-001" || model === "veo-3.1-fast-generate-001";
 }
 
-/** Thời lượng giây hợp lệ theo model. xAI: 1–15; Veo 3.1/Fast: 4/6/8; Veo cũ: 5/8. */
+/** Thời lượng giây hợp lệ theo model. xAI: 1–15; Veo 3.1/Fast: 4/6/8; Flow: 4/6/8; Veo cũ: 5/8. */
 export function getAllowedVideoDurations(model: string): number[] {
   if (isXaiModel(model)) {
     return Array.from({ length: 15 }, (_, i) => i + 1);
   }
-  if (isVeo31Family(model)) {
+  if (isVeo31Family(model) || isFlowVideoModel(model)) {
     return [...VEO_31_DURATIONS];
   }
   return [...VEO_LEGACY_DURATIONS];
@@ -60,6 +72,10 @@ export function getAllowedVideoDurations(model: string): number[] {
 
 export function isXaiModel(model: string): boolean {
   return (XAI_VIDEO_MODELS as readonly string[]).includes(model);
+}
+
+export function isFlowVideoModel(model: string): boolean {
+  return (FLOW_VIDEO_MODELS as readonly string[]).includes(model);
 }
 
 export function isXaiImageToVideoOnly(model: string): boolean {
@@ -355,6 +371,39 @@ async function generateXaiVideo(input: GenerateVideoInput, filePath: string): Pr
   }
 }
 
+async function generateFlowVideo(input: GenerateVideoInput, filePath: string): Promise<void> {
+  const created = await createFlowVideoViaRoute({
+    prompt: input.prompt,
+    model: input.model,
+    duration: input.duration as 4 | 6 | 8 | 10,
+    aspectRatio: input.aspectRatio as "16:9" | "9:16",
+  });
+  console.log(`[Flow video] created model=${input.model} request_id=${created.request_id}`);
+
+  const startTime = Date.now();
+  while (true) {
+    if (Date.now() - startTime > 600_000) {
+      console.error(`[Flow video] timeout after ${Math.round((Date.now() - startTime) / 1000)}s request_id=${created.request_id}`);
+      throw new Error("Tạo video quá thời gian chờ (10 phút)");
+    }
+    await new Promise((r) => setTimeout(r, 5_000));
+
+    const poll = await pollFlowVideoViaRoute({ requestId: created.request_id });
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    console.log(`[Flow video] poll status=${poll.status} progress=${poll.progress} elapsed=${elapsed}s`);
+
+    if (poll.status === "done") {
+      const videoData = await downloadFlowVideoContentViaRoute({ requestId: created.request_id });
+      fs.writeFileSync(filePath, videoData);
+      console.log(`[Flow video] success elapsed=${elapsed}s bytes=${videoData.length}`);
+      return;
+    }
+    if (poll.status === "failed") {
+      throw new Error(`Flow video failed: ${poll.error || "unknown"}`);
+    }
+  }
+}
+
 export async function generateVideo(input: GenerateVideoInput & { videoId: string }): Promise<VideoMetadata & { url: string }> {
   const mode: "text" | "image" = input.image ? "image" : "text";
 
@@ -364,6 +413,8 @@ export async function generateVideo(input: GenerateVideoInput & { videoId: strin
   let usedAccount = input.account;
   if (isXaiModel(input.model)) {
     usedAccount = await generateXaiVideo(input, filePath);
+  } else if (isFlowVideoModel(input.model)) {
+    await generateFlowVideo(input, filePath);
   } else {
     await generateVeoVideo(input, filePath);
   }

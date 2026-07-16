@@ -179,6 +179,9 @@ const vi = {
     blurbVeo20: "Tương thích 720p",
     blurbGrok: "Tạo video từ mô tả",
     blurbGrok15: "Tạo chuyển động từ ảnh",
+    blurbFlowFast: "Veo 3.1 qua Flow, nhanh",
+    blurbFlowLite: "Veo 3.1 qua Flow, nhẹ",
+    blurbFlowQuality: "Veo 3.1 qua Flow, chất lượng cao",
   },
   gallery: {
     images: "Ảnh",
