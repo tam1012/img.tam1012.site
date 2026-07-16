@@ -60,7 +60,7 @@ Người dùng có tài khoản riêng, ví tiền VND, lịch sử giao dịch 
 - Text-to-video / image-to-video (tuỳ model)
 - Stream serve video (không đọc cả file vào RAM)
 - Thumbnail bằng `ffmpeg`, gallery click-to-play, nút tải về
-- Giá mặc định: `VIDEO_PRICE_VND=5000` / video; admin free khi test
+- Giá mặc định: `VIDEO_PRICE_VND=1500` / video; admin free khi test
 - Prompt Refine dùng chung trên Video với context chuyển động/camera/continuity
 - Grok Image/Video gọi direct xAI qua OAuth pool round-robin; Gemini/GPT Image vẫn theo provider runtime hiện tại
 
@@ -161,7 +161,7 @@ POST /api/generate
 ### Giá mặc định (có thể đổi bằng env)
 
 - Ảnh: `IMAGE_PRICE_VND=100`
-- Video: `VIDEO_PRICE_VND=5000`
+- Video: `VIDEO_PRICE_VND=1500`
 - Đăng ký mới: tặng **1.000đ**
 
 ### Loại ledger
@@ -346,7 +346,7 @@ Chỉ liệt kê **tên** biến. Giá trị thật đặt trong `.env` local/VP
 | `POSTGRES_PASSWORD` | Có (Docker) | Password user Postgres compose |
 | `DATABASE_URL` | Có | Connection string Prisma |
 | `IMAGE_PRICE_VND` | Không (mặc định 100) | Giá mỗi ảnh |
-| `VIDEO_PRICE_VND` | Không (mặc định 5000) | Giá mỗi video |
+| `VIDEO_PRICE_VND` | Không (mặc định 1500) | Giá mỗi video |
 | `ADMIN_EMAIL` | Có (seed) | Email admin seed |
 | `ADMIN_PASSWORD` | Có (seed) | Password admin seed |
 | `DATA_DIR` | Không (mặc định `./data` hoặc `/data`) | Thư mục lưu ảnh/video |

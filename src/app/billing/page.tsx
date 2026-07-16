@@ -188,7 +188,7 @@ export default function BillingPage() {
               label={t("billing.remainingImages")}
               value={t("billing.imagesUnit", { count: wallet?.remaining_images ?? 0 })}
             />
-            <Stat label={t("billing.videoPrice")} value={money(wallet?.video_price_vnd ?? 5000)} />
+            <Stat label={t("billing.videoPrice")} value={money(wallet?.video_price_vnd ?? 1500)} />
             <Stat
               label={t("billing.remainingVideos")}
               value={t("billing.videosUnit", { count: wallet?.remaining_videos ?? 0 })}

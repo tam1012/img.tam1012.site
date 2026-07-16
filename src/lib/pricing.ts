@@ -4,8 +4,8 @@ export function getImagePriceVnd() {
 }
 
 export function getVideoPriceVnd() {
-  const value = Number(process.env.VIDEO_PRICE_VND || "5000");
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 5000;
+  const value = Number(process.env.VIDEO_PRICE_VND || "1500");
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1500;
 }
 
 export function quotaFromBalance(balanceVnd: number) {
