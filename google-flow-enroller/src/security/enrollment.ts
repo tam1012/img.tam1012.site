@@ -12,6 +12,7 @@ export type EnrollmentPayload = {
   version: 1;
   issuedAt: string;
   storageState: { cookies: unknown[]; origins: unknown[] };
+  email?: string;
 };
 
 export type EncryptedEnrollment = {

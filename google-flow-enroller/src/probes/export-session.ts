@@ -3,9 +3,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, type Browser } from "playwright-core";
+import { chromium, type Browser, type Page } from "playwright-core";
 import { findChromePath } from "../chrome/find-chrome.js";
-import { encryptEnrollment, type EnrollmentPayload } from "../security/enrollment.js";
+import { encryptEnrollment, type EnrollmentPayload, type EncryptedEnrollment } from "../security/enrollment.js";
 
 const FLOW_URL = "https://labs.google/fx/tools/flow";
 const SESSION_ENDPOINT = "/fx/api/auth/session";
@@ -51,7 +51,7 @@ function spawnChrome(chromePath: string, port: number, userDataDir: string): Chi
 
 // Runs inside the page. The access token never leaves the browser: scope is
 // checked here against Google tokeninfo and only a redacted summary is returned.
-async function readSessionSummary(page: import("playwright-core").Page): Promise<SessionSummary> {
+async function readSessionSummary(page: Page): Promise<SessionSummary> {
   return page.evaluate(
     async ([endpoint, scope]) => {
       const res = await fetch(endpoint, { credentials: "include" });
@@ -77,10 +77,41 @@ async function readSessionSummary(page: import("playwright-core").Page): Promise
   );
 }
 
-async function waitForFlowSession(
-  page: import("playwright-core").Page,
-  timeoutMs: number,
-): Promise<SessionSummary> {
+// Reads the Google account email so the bridge can label accounts by email
+// instead of flow-01/flow-02. Runs in-page; the access token never leaves the
+// browser. Tries the Flow session first, then Google userinfo as fallback.
+async function readAccountEmail(page: Page): Promise<string | null> {
+  return page
+    .evaluate(async ([endpoint]) => {
+      try {
+        const res = await fetch(endpoint, { credentials: "include" });
+        if (!res.ok) return null;
+        const session = (await res.json()) as {
+          access_token?: string;
+          user?: { email?: string };
+          email?: string;
+        };
+        if (session?.user?.email) return session.user.email;
+        if (session?.email) return session.email;
+        const token = session?.access_token;
+        if (token) {
+          const info = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (info.ok) {
+            const data = (await info.json()) as { email?: string };
+            if (data?.email) return data.email;
+          }
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    }, [SESSION_ENDPOINT] as const)
+    .catch(() => null);
+}
+
+async function waitForFlowSession(page: Page, timeoutMs: number): Promise<SessionSummary> {
   const deadline = Date.now() + timeoutMs;
   let announcedLogin = false;
   for (;;) {
@@ -102,22 +133,28 @@ async function waitForFlowSession(
   }
 }
 
-async function main() {
-  const publicKeyFile = process.env.FLOW_ENROLLMENT_PUBLIC_KEY_FILE;
-  if (!publicKeyFile) throw new Error("FLOW_ENROLLMENT_PUBLIC_KEY_FILE is required");
-  const chromePath = findChromePath();
+// Opens an isolated Chrome at Flow, waits for the user to log in, then captures
+// the storage state + account email and returns an encrypted enrollment bundle.
+// Plaintext storage state / token never touch disk. Reused by the probe entry
+// point and the one-click enroll-and-push orchestrator.
+export async function captureFlowSession(options: {
+  publicKeyFile: string;
+  chromePath?: string;
+  loginTimeoutMs?: number;
+  onLog?: (message: string) => void;
+}): Promise<{ encrypted: EncryptedEnrollment; email: string | null }> {
+  const emit = options.onLog ?? log;
+  const chromePath = options.chromePath ?? findChromePath();
   if (!chromePath) throw new Error("Could not locate Chrome. Set FLOW_CHROME_PATH.");
-
-  const loginTimeoutMs = Number(process.env.FLOW_LOGIN_TIMEOUT_MS ?? 15 * 60_000);
+  const loginTimeoutMs = options.loginTimeoutMs ?? Number(process.env.FLOW_LOGIN_TIMEOUT_MS ?? 15 * 60_000);
   const userDataDir = await mkdtemp(join(tmpdir(), "flow-enroll-"));
   const port = await freeLoopbackPort();
   let chrome: ChildProcess | undefined;
   let browser: Browser | undefined;
   try {
-    log("Đang mở Chrome tại Google Flow. Hãy đăng nhập trong cửa sổ vừa mở.");
+    emit("Đang mở Chrome tại Google Flow. Hãy đăng nhập trong cửa sổ vừa mở.");
     chrome = spawnChrome(chromePath, port, userDataDir);
 
-    // Give Chrome a moment to open its debugging port before connecting.
     let connected = false;
     const connectDeadline = Date.now() + 30_000;
     while (!connected) {
@@ -138,17 +175,17 @@ async function main() {
     const summary = await waitForFlowSession(page, loginTimeoutMs);
     if (!summary.hasAisandbox) throw new Error("Session missing aisandbox scope");
 
+    const email = await readAccountEmail(page);
     const storageState = await context.storageState({ indexedDB: true });
     const payload: EnrollmentPayload = {
       version: 1,
       issuedAt: new Date().toISOString(),
       storageState: { cookies: storageState.cookies, origins: storageState.origins },
+      ...(email ? { email } : {}),
     };
-    const publicKeyPem = await readFile(publicKeyFile, "utf8");
+    const publicKeyPem = await readFile(options.publicKeyFile, "utf8");
     const encrypted = encryptEnrollment(payload, publicKeyPem);
-    await writeFile(OUTPUT_BUNDLE, JSON.stringify(encrypted), { mode: 0o600 });
-
-    process.stdout.write(`FLOW_SESSION_READY scope=aisandbox bundle=${OUTPUT_BUNDLE}\n`);
+    return { encrypted, email };
   } finally {
     if (browser) await browser.close().catch(() => undefined);
     if (chrome && !chrome.killed) chrome.kill();
@@ -156,7 +193,24 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  log(`FLOW_SESSION_FAILED ${error instanceof Error ? error.message : "unknown error"}`);
-  process.exitCode = 1;
-});
+async function main() {
+  const publicKeyFile = process.env.FLOW_ENROLLMENT_PUBLIC_KEY_FILE;
+  if (!publicKeyFile) throw new Error("FLOW_ENROLLMENT_PUBLIC_KEY_FILE is required");
+
+  const { encrypted, email } = await captureFlowSession({ publicKeyFile });
+  await writeFile(OUTPUT_BUNDLE, JSON.stringify(encrypted), { mode: 0o600 });
+
+  process.stdout.write(
+    `FLOW_SESSION_READY scope=aisandbox email=${email ? "captured" : "MISSING"} bundle=${OUTPUT_BUNDLE}\n`,
+  );
+}
+
+// Only run the probe when executed directly, not when imported by the orchestrator.
+const invokedDirectly = process.argv[1]?.replace(/\\/g, "/").endsWith("export-session.ts") ||
+  process.argv[1]?.replace(/\\/g, "/").endsWith("export-session.js");
+if (invokedDirectly) {
+  main().catch((error) => {
+    log(`FLOW_SESSION_FAILED ${error instanceof Error ? error.message : "unknown error"}`);
+    process.exitCode = 1;
+  });
+}
