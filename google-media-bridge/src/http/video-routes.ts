@@ -208,7 +208,8 @@ export function registerVideoRoutes(
       job.encryptedUpstreamState,
     );
     const browser = await deps.browsers.forAccount(account.id);
-    const session = await readSession(browser.page);
+    // Poll chỉ cần token; bỏ verify scope qua googleapis để tránh reauth giả (blip mạng).
+    const session = await readSession(browser.page, { verifyScope: false });
     const polled = await pollFlowVideoJob({
       page: browser.page,
       accessToken: session.accessToken,

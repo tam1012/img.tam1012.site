@@ -51,10 +51,19 @@ export async function readAccountEmail(page: Page): Promise<string | null> {
     .catch(() => null);
 }
 
-export async function readSession(page: Page): Promise<SessionBrokerResult> {
+// verifyScope=true (mặc định, dùng khi enroll/verify): kiểm tra scope aisandbox
+// qua googleapis. verifyScope=false (dùng khi poll video mỗi 5s): chỉ cần token
+// từ session endpoint của Flow, KHÔNG gọi googleapis — tránh một cú blip mạng tới
+// googleapis biến thành FLOW_REAUTH_REQUIRED giả giết job đang render. Scope đã
+// được xác thực lúc enroll; nếu scope thật sự bị thu hồi thì API Flow sẽ trả 401/403.
+export async function readSession(
+  page: Page,
+  options: { verifyScope?: boolean } = {},
+): Promise<SessionBrokerResult> {
+  const verifyScope = options.verifyScope ?? true;
   await page.goto(FLOW_URL, { waitUntil: "domcontentloaded" }).catch(() => undefined);
   const result = await page.evaluate(
-    async ([endpoint, scope]) => {
+    async ([endpoint, scope, doVerify]) => {
       const res = await fetch(endpoint, { credentials: "include" });
       if (!res.ok) {
         return {
@@ -80,18 +89,20 @@ export async function readSession(page: Page): Promise<SessionBrokerResult> {
           accessToken: "",
         };
       }
-      let hasAisandbox = false;
-      try {
-        const info = await fetch(
-          `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`,
-        );
-        if (info.ok) {
-          const data = (await info.json()) as { scope?: string };
-          hasAisandbox =
-            typeof data.scope === "string" && data.scope.split(/\s+/).includes(scope);
+      let hasAisandbox = !doVerify; // khi không verify: tin scope đã kiểm lúc enroll
+      if (doVerify) {
+        try {
+          const info = await fetch(
+            `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`,
+          );
+          if (info.ok) {
+            const data = (await info.json()) as { scope?: string };
+            hasAisandbox =
+              typeof data.scope === "string" && data.scope.split(/\s+/).includes(scope);
+          }
+        } catch {
+          hasAisandbox = false;
         }
-      } catch {
-        hasAisandbox = false;
       }
       return {
         summary: {
@@ -103,13 +114,13 @@ export async function readSession(page: Page): Promise<SessionBrokerResult> {
         accessToken: token,
       };
     },
-    [SESSION_ENDPOINT, AISANDBOX_SCOPE] as const,
+    [SESSION_ENDPOINT, AISANDBOX_SCOPE, verifyScope] as const,
   );
 
   if (!result.summary.authenticated || !result.accessToken) {
     throw new Error("FLOW_REAUTH_REQUIRED");
   }
-  if (!result.summary.hasAisandbox) {
+  if (verifyScope && !result.summary.hasAisandbox) {
     throw new Error("FLOW_REAUTH_REQUIRED");
   }
   return result;
