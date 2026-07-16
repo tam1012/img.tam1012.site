@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { AccountRepository } from "../accounts/repository.js";
 import type { BrowserWorkerPool } from "../browser/worker.js";
 import type { BridgeConfig } from "../config.js";
-import { readSession } from "../flow/session-broker.js";
+import { readSession, discoverProjectMeta } from "../flow/session-broker.js";
 import {
   decryptEnrollment,
   type EncryptedEnrollment,
@@ -90,15 +90,31 @@ export function registerAdminRoutes(
     try {
       const browser = await deps.browsers.forAccount(id);
       const session = await readSession(browser.page);
+      if (!account.projectId || !account.siteKey) {
+        const meta = await discoverProjectMeta(browser.page, session.accessToken).catch(() => ({
+          projectId: null as string | null,
+          siteKey: null as string | null,
+        }));
+        if (meta.projectId || meta.siteKey) {
+          deps.accounts.setProjectMeta(
+            id,
+            meta.projectId ?? account.projectId,
+            meta.siteKey ?? account.siteKey ?? deps.config.recaptchaSiteKey ?? null,
+          );
+        }
+      }
       await browser.persist().catch(() => undefined);
       deps.accounts.markVerified(id);
+      const updated = deps.accounts.get(id)!;
       return {
         id,
-        alias: account.alias,
+        alias: updated.alias,
         status: "healthy",
         authenticated: session.summary.authenticated,
         hasAisandbox: session.summary.hasAisandbox,
         tokenFamily: session.summary.tokenFamily,
+        hasProject: Boolean(updated.projectId),
+        hasSiteKey: Boolean(updated.siteKey),
       };
     } catch {
       deps.accounts.setStatus(id, "reauth_required", { failureCode: "FLOW_REAUTH_REQUIRED" });
@@ -109,6 +125,26 @@ export function registerAdminRoutes(
         error: "FLOW_REAUTH_REQUIRED",
       });
     }
+  });
+
+  app.put("/admin/v1/accounts/:id/project", async (request, reply) => {
+    requireAdminKey(request, deps.config.adminKey);
+    const { id } = request.params as { id: string };
+    const account = deps.accounts.get(id);
+    if (!account) return reply.code(404).send({ error: { message: "not found" } });
+    const body = z
+      .object({ projectId: z.string().min(1).optional(), siteKey: z.string().min(1).optional() })
+      .parse(request.body ?? {});
+    if (!body.projectId && !body.siteKey) {
+      return reply.code(400).send({ error: { message: "projectId or siteKey required" } });
+    }
+    deps.accounts.setProjectMeta(
+      id,
+      body.projectId ?? account.projectId,
+      body.siteKey ?? account.siteKey,
+    );
+    const updated = deps.accounts.get(id)!;
+    return { id, hasProject: Boolean(updated.projectId), hasSiteKey: Boolean(updated.siteKey) };
   });
 
   app.post("/admin/v1/accounts/:id/disable", async (request, reply) => {

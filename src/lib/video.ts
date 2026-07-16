@@ -29,6 +29,7 @@ export const XAI_VIDEO_MODELS = [
 ] as const;
 
 export const FLOW_VIDEO_MODELS = [
+  "flow-omni-flash",
   "flow-veo-3.1-fast",
   "flow-veo-3.1-lite",
   "flow-veo-3.1-quality",
@@ -39,6 +40,7 @@ export const PUBLIC_VIDEO_MODELS = [
   "veo-3.1-fast-generate-001",
   "grok-imagine-video",
   "grok-imagine-video-1.5-preview",
+  "flow-omni-flash",
   "flow-veo-3.1-fast",
 ] as const;
 
@@ -50,6 +52,8 @@ export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 /** Thời lượng cho Veo 3.1 / Veo 3.1 Fast. Model Veo cũ (admin) vẫn 5/8. */
 export const VEO_31_DURATIONS = [4, 6, 8] as const;
 export const VEO_LEGACY_DURATIONS = [5, 8] as const;
+export const OMNI_FLASH_DURATIONS = [4, 6, 8, 10] as const;
+export const FLOW_VEO_DURATIONS = [8] as const;
 
 export function isPublicVideoModel(model: string): boolean {
   return (PUBLIC_VIDEO_MODELS as readonly string[]).includes(model);
@@ -59,12 +63,18 @@ export function isVeo31Family(model: string): boolean {
   return model === "veo-3.1-generate-001" || model === "veo-3.1-fast-generate-001";
 }
 
-/** Thời lượng giây hợp lệ theo model. xAI: 1–15; Veo 3.1/Fast: 4/6/8; Flow: 4/6/8; Veo cũ: 5/8. */
+/** Thời lượng giây hợp lệ theo model. xAI: 1–15; Omni Flash: 4/6/8/10; Veo 3.1/Fast: 4/6/8; Flow Veo: 8; Veo cũ: 5/8. */
 export function getAllowedVideoDurations(model: string): number[] {
   if (isXaiModel(model)) {
     return Array.from({ length: 15 }, (_, i) => i + 1);
   }
-  if (isVeo31Family(model) || isFlowVideoModel(model)) {
+  if (model === "flow-omni-flash") {
+    return [...OMNI_FLASH_DURATIONS];
+  }
+  if (isFlowVideoModel(model)) {
+    return [...FLOW_VEO_DURATIONS];
+  }
+  if (isVeo31Family(model)) {
     return [...VEO_31_DURATIONS];
   }
   return [...VEO_LEGACY_DURATIONS];

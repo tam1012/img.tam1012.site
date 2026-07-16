@@ -182,6 +182,7 @@ const vi = {
     blurbFlowFast: "Veo 3.1 qua Flow, nhanh",
     blurbFlowLite: "Veo 3.1 qua Flow, nhẹ",
     blurbFlowQuality: "Veo 3.1 qua Flow, chất lượng cao",
+    blurbOmniFlash: "Gemini Omni Flash qua Flow, tối đa 10 giây",
   },
   gallery: {
     images: "Ảnh",

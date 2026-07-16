@@ -39,3 +39,5 @@ google-flow-enroller/dist/
 
 # Local probe dumps / temporary captures
 tmp/
+
+.local-tmp/

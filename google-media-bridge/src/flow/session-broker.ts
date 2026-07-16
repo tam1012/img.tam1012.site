@@ -1,4 +1,5 @@
 import type { Page } from "playwright-core";
+import { randomUUID } from "node:crypto";
 
 const FLOW_URL = "https://labs.google/fx/tools/flow";
 const SESSION_ENDPOINT = "/fx/api/auth/session";
@@ -79,4 +80,74 @@ export async function readSession(page: Page): Promise<SessionBrokerResult> {
     throw new Error("FLOW_REAUTH_REQUIRED");
   }
   return result;
+}
+
+export async function discoverProjectMeta(
+  page: Page,
+  accessToken: string,
+): Promise<{ projectId: string | null; siteKey: string | null }> {
+  let projectId: string | null = null;
+  let siteKey: string | null = null;
+
+  const UUID_RE = /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/;
+
+  // Intercept responses to find projectId from any aisandbox API
+  const responseHandler = async (response: import("playwright-core").Response) => {
+    if (projectId) return;
+    const url = response.url();
+    if (!/aisandbox-pa\.googleapis\.com/i.test(url)) return;
+    const urlMatch = url.match(/\/projects\/([a-f0-9-]{36})\//);
+    if (urlMatch) { projectId = urlMatch[1]; return; }
+    try {
+      const text = await response.text();
+      const findId = (obj: unknown): string | null => {
+        if (!obj || typeof obj !== "object") return null;
+        const rec = obj as Record<string, unknown>;
+        if (typeof rec.projectId === "string" && UUID_RE.test(rec.projectId))
+          return rec.projectId;
+        for (const v of Object.values(rec)) {
+          const found = findId(v);
+          if (found) return found;
+        }
+        return null;
+      };
+      const parsed = JSON.parse(text);
+      const found = findId(parsed);
+      if (found) projectId = found;
+    } catch {}
+  };
+
+  page.on("response", responseHandler);
+  try {
+    // Re-navigate to trigger fresh API calls
+    await page.goto(FLOW_URL, { waitUntil: "networkidle", timeout: 30_000 }).catch(() => undefined);
+
+    // siteKey from recaptcha enterprise script tags
+    siteKey = await page.evaluate(() => {
+      for (const s of document.querySelectorAll<HTMLScriptElement>(
+        "script[src*='recaptcha']",
+      )) {
+        try {
+          const render = new URL(s.src).searchParams.get("render");
+          if (render && render.length > 10) return render;
+        } catch {}
+      }
+      return null;
+    }).catch(() => null);
+
+    // Extra wait if projectId not yet found
+    if (!projectId) {
+      await new Promise((r) => setTimeout(r, 5_000));
+    }
+
+    // Flow projectId is generated client-side; any UUID works
+    if (!projectId) {
+      projectId = randomUUID();
+      console.log(`[discover] generated client-side projectId=${projectId}`);
+    }
+  } finally {
+    page.off("response", responseHandler);
+  }
+
+  return { projectId, siteKey };
 }

@@ -37,6 +37,7 @@ const ALL_MODEL_OPTIONS = [
   "veo-2.0-generate-001",
   "grok-imagine-video",
   "grok-imagine-video-1.5-preview",
+  "flow-omni-flash",
   "flow-veo-3.1-fast",
   "flow-veo-3.1-lite",
   "flow-veo-3.1-quality",
@@ -50,6 +51,7 @@ const MODEL_TITLE: Record<string, string> = {
   "veo-2.0-generate-001": "Veo 2.0",
   "grok-imagine-video": "Grok Video",
   "grok-imagine-video-1.5-preview": "Grok Video 1.5",
+  "flow-omni-flash": "Gemini Omni Flash",
   "flow-veo-3.1-fast": "Flow Veo 3.1 Fast",
   "flow-veo-3.1-lite": "Flow Veo 3.1 Lite",
   "flow-veo-3.1-quality": "Flow Veo 3.1 Quality",
@@ -63,6 +65,7 @@ const MODEL_BLURB_KEY: Record<string, MessageKey> = {
   "veo-2.0-generate-001": "video.blurbVeo20",
   "grok-imagine-video": "video.blurbGrok",
   "grok-imagine-video-1.5-preview": "video.blurbGrok15",
+  "flow-omni-flash": "video.blurbOmniFlash",
   "flow-veo-3.1-fast": "video.blurbFlowFast",
   "flow-veo-3.1-lite": "video.blurbFlowLite",
   "flow-veo-3.1-quality": "video.blurbFlowQuality",
@@ -72,6 +75,7 @@ const PUBLIC_MODELS = new Set([
   "veo-3.1-fast-generate-001",
   "grok-imagine-video",
   "grok-imagine-video-1.5-preview",
+  "flow-omni-flash",
   "flow-veo-3.1-fast",
 ]);
 
@@ -79,7 +83,7 @@ const XAI_MODELS = new Set(["grok-imagine-video", "grok-imagine-video-1.5-previe
 const XAI_IMAGE_ONLY = "grok-imagine-video-1.5-preview";
 const XAI_TEXT_ONLY = "grok-imagine-video";
 const VEO_31_MODELS = new Set(["veo-3.1-generate-001", "veo-3.1-fast-generate-001"]);
-const FLOW_MODELS = new Set(["flow-veo-3.1-fast", "flow-veo-3.1-lite", "flow-veo-3.1-quality"]);
+const FLOW_MODELS = new Set(["flow-omni-flash", "flow-veo-3.1-fast", "flow-veo-3.1-lite", "flow-veo-3.1-quality"]);
 const DEFAULT_MODEL = "veo-3.1-fast-generate-001";
 const ALLOWED_SOURCE_IMAGE_TYPES = new Set(["image/jpeg", "image/png"]);
 
@@ -155,9 +159,13 @@ export default function VideoPage() {
   const durationOptions = useMemo(() => {
     const values = isXai
       ? ["5", "8", "10", "12", "15"]
-      : (VEO_31_MODELS.has(model) || isFlow)
-        ? ["4", "6", "8"]
-        : ["5", "8"];
+      : model === "flow-omni-flash"
+        ? ["4", "6", "8", "10"]
+        : isFlow
+          ? ["8"]
+          : VEO_31_MODELS.has(model)
+            ? ["4", "6", "8"]
+            : ["5", "8"];
     return values.map((n) => ({ value: n, label: t("video.seconds", { n }) }));
   }, [isXai, isFlow, model, t]);
   const canAfford = isAdmin || (wallet !== null && wallet.balance_vnd >= wallet.video_price_vnd);

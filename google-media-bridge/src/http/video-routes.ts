@@ -21,6 +21,7 @@ import { requireApiKey } from "./auth.js";
 
 const FLOW_VIDEO_MODELS = [
   "flow-video-fast-4s",
+  "flow-omni-flash",
   "flow-veo-3.1-fast",
   "flow-veo-3.1-lite",
   "flow-veo-3.1-quality",

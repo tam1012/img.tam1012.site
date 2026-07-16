@@ -184,6 +184,7 @@ const en: Messages = {
     blurbFlowFast: "Veo 3.1 via Flow, fast",
     blurbFlowLite: "Veo 3.1 via Flow, lite",
     blurbFlowQuality: "Veo 3.1 via Flow, high quality",
+    blurbOmniFlash: "Gemini Omni Flash via Flow, up to 10s",
   },
   gallery: {
     images: "Images",

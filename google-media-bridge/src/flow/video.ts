@@ -38,6 +38,7 @@ const MODEL_KEY_MAP: Record<string, string> = {
   "flow-veo-3.1-lite": "veo_3_1_t2v_lite",
   "flow-veo-3.1-quality": "veo_3_1_t2v_quality",
   "flow-video-fast-4s": "abra_t2v_4s",
+  "flow-omni-flash": "abra_t2v_4s",
 };
 
 export function mapVideoModelKey(model?: string): string {
