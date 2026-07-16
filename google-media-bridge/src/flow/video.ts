@@ -38,10 +38,14 @@ const MODEL_KEY_MAP: Record<string, string> = {
   "flow-veo-3.1-lite": "veo_3_1_t2v_lite",
   "flow-veo-3.1-quality": "veo_3_1_t2v_quality",
   "flow-video-fast-4s": "abra_t2v_4s",
-  "flow-omni-flash": "abra_t2v_4s",
 };
 
-export function mapVideoModelKey(model?: string): string {
+// Omni Flash mã hoá thời lượng vào model key (abra_t2v_4s/6s/8s/10s; i2v khi có ảnh đầu vào).
+export function mapVideoModelKey(model?: string, duration?: 4 | 6 | 8 | 10, kind?: JobKind): string {
+  if (model === "flow-omni-flash") {
+    const prefix = kind === "image_video" || kind === "start_end_video" ? "abra_i2v" : "abra_t2v";
+    return `${prefix}_${duration ?? 4}s`;
+  }
   if (model && MODEL_KEY_MAP[model]) return MODEL_KEY_MAP[model];
   return "veo_3_1_t2v_fast";
 }
@@ -73,7 +77,7 @@ export async function createFlowVideoJob(input: {
 }): Promise<VideoUpstreamState> {
   const kind = resolveVideoKind(input.video);
   const endpoint = mapVideoEndpoint(kind);
-  const modelKey = mapVideoModelKey(input.video.modelKey);
+  const modelKey = mapVideoModelKey(input.video.modelKey, input.video.duration, kind);
   // Flow frontend uses grecaptcha action VIDEO_GENERATION for all video creates.
   const token = await createRecaptchaToken(input.page, {
     siteKey: input.siteKey,

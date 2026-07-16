@@ -39,5 +39,11 @@ describe("video adapter mapping", () => {
     expect(mapVideoModelKey("flow-veo-3.1-lite")).toBe("veo_3_1_t2v_lite");
     expect(mapVideoModelKey("flow-veo-3.1-quality")).toBe("veo_3_1_t2v_quality");
     expect(mapVideoModelKey()).toBe("veo_3_1_t2v_fast");
+    expect(mapVideoModelKey("flow-omni-flash", 4, "text_video")).toBe("abra_t2v_4s");
+    expect(mapVideoModelKey("flow-omni-flash", 6, "text_video")).toBe("abra_t2v_6s");
+    expect(mapVideoModelKey("flow-omni-flash", 8, "text_video")).toBe("abra_t2v_8s");
+    expect(mapVideoModelKey("flow-omni-flash", 10, "text_video")).toBe("abra_t2v_10s");
+    expect(mapVideoModelKey("flow-omni-flash", 10, "image_video")).toBe("abra_i2v_10s");
+    expect(mapVideoModelKey("flow-omni-flash", 8, "start_end_video")).toBe("abra_i2v_8s");
   });
 });
