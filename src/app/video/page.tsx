@@ -60,7 +60,7 @@ const MODEL_BLURB_KEY: Record<string, MessageKey> = {
 };
 
 const PUBLIC_MODELS = new Set([
-  "veo-3.1-generate-001",
+  "veo-3.1-fast-generate-001",
   "grok-imagine-video",
   "grok-imagine-video-1.5-preview",
 ]);
@@ -68,7 +68,8 @@ const PUBLIC_MODELS = new Set([
 const XAI_MODELS = new Set(["grok-imagine-video", "grok-imagine-video-1.5-preview"]);
 const XAI_IMAGE_ONLY = "grok-imagine-video-1.5-preview";
 const XAI_TEXT_ONLY = "grok-imagine-video";
-const DEFAULT_MODEL = "veo-3.1-generate-001";
+const VEO_31_MODELS = new Set(["veo-3.1-generate-001", "veo-3.1-fast-generate-001"]);
+const DEFAULT_MODEL = "veo-3.1-fast-generate-001";
 
 const RESOLUTIONS_BY_MODEL: Record<string, { value: string; label: string }[]> = {
   "veo-3.1-generate-001": [
@@ -107,7 +108,7 @@ export default function VideoPage() {
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [aspectRatio, setAspectRatio] = useState("16:9");
   const [resolution, setResolution] = useState("720p");
-  const [duration, setDuration] = useState("5");
+  const [duration, setDuration] = useState("4");
   const [account, setAccount] = useState("");
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -132,9 +133,14 @@ export default function VideoPage() {
   }, [model, isAdmin]);
   const isXai = XAI_MODELS.has(model);
   const durationOptions = useMemo(() => {
-    const values = isXai ? ["5", "8", "10", "12", "15"] : ["5", "8"];
+    // Veo 3.1 / Fast: 4/6/8; Veo cũ (admin): 5/8; Grok: 5/8/10/12/15
+    const values = isXai
+      ? ["5", "8", "10", "12", "15"]
+      : VEO_31_MODELS.has(model)
+        ? ["4", "6", "8"]
+        : ["5", "8"];
     return values.map((n) => ({ value: n, label: t("video.seconds", { n }) }));
-  }, [isXai, t]);
+  }, [isXai, model, t]);
   const canAfford = isAdmin || (wallet !== null && wallet.balance_vnd >= wallet.video_price_vnd);
   const aspectOptions = [
     { value: "16:9", label: t("common.ratioLandscape169Short") },

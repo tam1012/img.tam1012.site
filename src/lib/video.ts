@@ -25,18 +25,37 @@ export const XAI_VIDEO_MODELS = [
 
 export const VIDEO_MODELS = [...VEO_MODELS, ...XAI_VIDEO_MODELS] as const;
 export const PUBLIC_VIDEO_MODELS = [
-  "veo-3.1-generate-001",
+  "veo-3.1-fast-generate-001",
   "grok-imagine-video",
   "grok-imagine-video-1.5-preview",
 ] as const;
 
 export type VideoModel = (typeof VIDEO_MODELS)[number];
-export const DEFAULT_VIDEO_MODEL: VideoModel = "veo-3.1-generate-001";
+export const DEFAULT_VIDEO_MODEL: VideoModel = "veo-3.1-fast-generate-001";
 export const VIDEO_ASPECT_RATIOS = ["16:9", "9:16"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 
+/** Thời lượng cho Veo 3.1 / Veo 3.1 Fast. Model Veo cũ (admin) vẫn 5/8. */
+export const VEO_31_DURATIONS = [4, 6, 8] as const;
+export const VEO_LEGACY_DURATIONS = [5, 8] as const;
+
 export function isPublicVideoModel(model: string): boolean {
   return (PUBLIC_VIDEO_MODELS as readonly string[]).includes(model);
+}
+
+export function isVeo31Family(model: string): boolean {
+  return model === "veo-3.1-generate-001" || model === "veo-3.1-fast-generate-001";
+}
+
+/** Thời lượng giây hợp lệ theo model. xAI: 1–15; Veo 3.1/Fast: 4/6/8; Veo cũ: 5/8. */
+export function getAllowedVideoDurations(model: string): number[] {
+  if (isXaiModel(model)) {
+    return Array.from({ length: 15 }, (_, i) => i + 1);
+  }
+  if (isVeo31Family(model)) {
+    return [...VEO_31_DURATIONS];
+  }
+  return [...VEO_LEGACY_DURATIONS];
 }
 
 export function isXaiModel(model: string): boolean {
@@ -104,7 +123,8 @@ const VIDEO_ACCOUNTS = [
 ] as const;
 
 export type VideoAccountId = (typeof VIDEO_ACCOUNTS)[number]["id"];
-export const DEFAULT_VIDEO_ACCOUNT: VideoAccountId = "1";
+/** Slot 2 = vertex-500216. User thường luôn bị ép dùng account này. */
+export const DEFAULT_VIDEO_ACCOUNT: VideoAccountId = "2";
 
 function readCredentialFile(path: string): { fileConfig: VertexCredentialFile; credentials: Record<string, unknown> } | null {
   if (!fs.existsSync(path)) return null;

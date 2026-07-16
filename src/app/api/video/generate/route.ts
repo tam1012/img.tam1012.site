@@ -13,6 +13,7 @@ import {
   isXaiImageToVideoOnly,
   isXaiTextToVideoOnly,
   isPublicVideoModel,
+  getAllowedVideoDurations,
   createVideoRecord,
   completeVideoRecord,
   failVideoRecord,
@@ -69,9 +70,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Tài khoản Vertex không hợp lệ" }, { status: 400 });
     }
 
-    const duration = xai
-      ? (durationRaw >= 1 && durationRaw <= 15 ? durationRaw : 8)
-      : (durationRaw === 8 ? 8 : 5);
+    const allowedDurations = getAllowedVideoDurations(model);
+    const duration = allowedDurations.includes(durationRaw)
+      ? durationRaw
+      : (allowedDurations.includes(8) ? 8 : allowedDurations[0]);
 
     let resolution = "";
     if (!xai) {
