@@ -43,6 +43,30 @@ export function registerAdminRoutes(
     const body = enrollmentBody.parse(request.body ?? {});
     const payload = decryptEnrollment(body.bundle as EncryptedEnrollment, privateKeyPem());
     const encryptedStorageState = encryptJSON(deps.config.vaultKey, payload.storageState);
+    // Nếu email đã có account thì coi như đăng nhập lại (giữ alias/id cũ), không tạo trùng.
+    const existingByEmail = payload.email ? deps.accounts.getByEmail(payload.email) : null;
+    if (existingByEmail) {
+      deps.accounts.updateStorageState(existingByEmail.id, encryptedStorageState);
+      if (body.projectId || body.siteKey) {
+        deps.accounts.setProjectMeta(
+          existingByEmail.id,
+          body.projectId ?? existingByEmail.projectId,
+          body.siteKey ?? existingByEmail.siteKey,
+        );
+      }
+      deps.accounts.setStatus(existingByEmail.id, "healthy", {
+        failureCode: null,
+        cooldownUntil: null,
+      });
+      await deps.browsers.invalidate(existingByEmail.id);
+      return reply.code(200).send({
+        id: existingByEmail.id,
+        alias: existingByEmail.alias,
+        email: existingByEmail.email,
+        status: "healthy",
+        reauth: true,
+      });
+    }
     const id = randomUUID();
     const alias = body.alias || deps.accounts.nextAlias();
     const account = deps.accounts.insert({
@@ -52,10 +76,12 @@ export function registerAdminRoutes(
       status: "healthy",
       projectId: body.projectId ?? null,
       siteKey: body.siteKey ?? deps.config.recaptchaSiteKey ?? null,
+      email: payload.email ?? null,
     });
     return reply.code(201).send({
       id: account.id,
       alias: account.alias,
+      email: account.email,
       status: account.status,
     });
   });
@@ -76,10 +102,11 @@ export function registerAdminRoutes(
         body.siteKey ?? existing.siteKey,
       );
     }
+    if (payload.email) deps.accounts.setEmail(id, payload.email);
     deps.accounts.setStatus(id, "healthy", { failureCode: null, cooldownUntil: null });
     await deps.browsers.invalidate(id);
     const account = deps.accounts.get(id)!;
-    return { id: account.id, alias: account.alias, status: account.status };
+    return { id: account.id, alias: account.alias, email: account.email, status: account.status };
   });
 
   app.post("/admin/v1/accounts/:id/verify", async (request, reply) => {
@@ -179,6 +206,7 @@ export function registerAdminRoutes(
       accounts: deps.accounts.list().map((a) => ({
         id: a.id,
         alias: a.alias,
+        email: a.email,
         status: a.status,
         activeLeases: a.activeLeases,
         lastVerifiedAt: a.lastVerifiedAt,

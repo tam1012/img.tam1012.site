@@ -31,6 +31,7 @@ export type AccountRecord = {
   failureCode: string | null;
   projectId: string | null;
   siteKey: string | null;
+  email: string | null;
   createdAt: string;
   updatedAt: string;
 };

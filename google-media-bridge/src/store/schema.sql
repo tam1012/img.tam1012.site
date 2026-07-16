@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   failure_code TEXT,
   project_id TEXT,
   site_key TEXT,
+  email TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

@@ -12,6 +12,7 @@ export type EnrollmentPayload = {
   version: 1;
   issuedAt: string;
   storageState: { cookies: unknown[]; origins: unknown[] };
+  email?: string;
 };
 
 export type EncryptedEnrollment = {
@@ -31,6 +32,7 @@ const payloadSchema = z.object({
     cookies: z.array(z.unknown()),
     origins: z.array(z.unknown()),
   }),
+  email: z.string().email().optional(),
 });
 
 export function encryptEnrollment(payload: EnrollmentPayload, publicKeyPem: string): EncryptedEnrollment {

@@ -14,6 +14,7 @@ type AccountRow = {
   failure_code: string | null;
   project_id: string | null;
   site_key: string | null;
+  email: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -31,6 +32,7 @@ function mapAccount(row: AccountRow): AccountRecord {
     failureCode: row.failure_code,
     projectId: row.project_id,
     siteKey: row.site_key,
+    email: row.email,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -64,13 +66,14 @@ export function createAccountRepository(db: BridgeDatabase) {
       status?: AccountStatus;
       projectId?: string | null;
       siteKey?: string | null;
+      email?: string | null;
     }): AccountRecord {
       const ts = nowIso();
       db.prepare(
         `INSERT INTO accounts (
           id, alias, encrypted_storage_state, status, active_leases,
-          project_id, site_key, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+          project_id, site_key, email, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
       ).run(
         input.id,
         input.alias,
@@ -78,10 +81,26 @@ export function createAccountRepository(db: BridgeDatabase) {
         input.status ?? "healthy",
         input.projectId ?? null,
         input.siteKey ?? null,
+        input.email ?? null,
         ts,
         ts,
       );
       return this.get(input.id)!;
+    },
+
+    getByEmail(email: string): AccountRecord | null {
+      const row = db.prepare(`SELECT * FROM accounts WHERE email = ?`).get(email) as
+        | AccountRow
+        | undefined;
+      return row ? mapAccount(row) : null;
+    },
+
+    setEmail(id: string, email: string): void {
+      db.prepare(`UPDATE accounts SET email = ?, updated_at = ? WHERE id = ?`).run(
+        email,
+        nowIso(),
+        id,
+      );
     },
 
     updateStorageState(id: string, encryptedStorageState: string): void {
