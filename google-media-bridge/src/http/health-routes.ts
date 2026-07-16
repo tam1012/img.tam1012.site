@@ -26,6 +26,9 @@ export function registerHealthRoutes(
         { id: "flow-nano-banana-2", object: "model", owned_by: "google-flow-bridge" },
         { id: "flow-nano-banana-pro", object: "model", owned_by: "google-flow-bridge" },
         { id: "flow-video-fast-4s", object: "model", owned_by: "google-flow-bridge" },
+        { id: "flow-veo-3.1-fast", object: "model", owned_by: "google-flow-bridge" },
+        { id: "flow-veo-3.1-lite", object: "model", owned_by: "google-flow-bridge" },
+        { id: "flow-veo-3.1-quality", object: "model", owned_by: "google-flow-bridge" },
       ],
     };
   });

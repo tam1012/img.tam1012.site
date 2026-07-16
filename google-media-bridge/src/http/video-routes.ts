@@ -19,8 +19,15 @@ import type { JobRepository } from "../jobs/repository.js";
 import { encryptJSON, decryptJSON } from "../security/vault.js";
 import { requireApiKey } from "./auth.js";
 
+const FLOW_VIDEO_MODELS = [
+  "flow-video-fast-4s",
+  "flow-veo-3.1-fast",
+  "flow-veo-3.1-lite",
+  "flow-veo-3.1-quality",
+] as const;
+
 const videoBody = z.object({
-  model: z.enum(["flow-video-fast-4s", "grok-imagine-video"]).default("flow-video-fast-4s"),
+  model: z.enum([...FLOW_VIDEO_MODELS, "grok-imagine-video"]).default("flow-veo-3.1-fast"),
   prompt: z.string().min(1).max(20_000),
   duration: z.union([z.literal(4), z.literal(6), z.literal(8), z.literal(10)]).default(4),
   aspect_ratio: z.enum(["16:9", "9:16"]).default("16:9"),
@@ -117,13 +124,14 @@ export function registerVideoRoutes(
       prompt: body.prompt,
       duration: body.duration,
       aspectRatio: mapAspect(body.size, body.aspect_ratio),
+      modelKey: body.model,
     });
   });
 
   app.post("/v1/videos/edits", async (request, reply) => {
     const body = z
       .object({
-        model: z.enum(["flow-video-fast-4s", "grok-imagine-video"]).default("flow-video-fast-4s"),
+        model: z.enum([...FLOW_VIDEO_MODELS, "grok-imagine-video"]).default("flow-veo-3.1-fast"),
         prompt: z.string().min(1).max(20_000),
         duration: z.union([z.literal(4), z.literal(6), z.literal(8), z.literal(10)]).default(4),
         aspect_ratio: z.enum(["16:9", "9:16"]).default("16:9"),
@@ -138,6 +146,7 @@ export function registerVideoRoutes(
       prompt: body.prompt,
       duration: body.duration,
       aspectRatio: body.aspect_ratio,
+      modelKey: body.model,
       startImage: {
         data: Buffer.from(body.start_image_b64, "base64"),
         mimeType: body.start_image_mime,

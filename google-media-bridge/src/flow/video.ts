@@ -9,6 +9,7 @@ export type CreateVideoInput = {
   prompt: string;
   duration: 4 | 6 | 8 | 10;
   aspectRatio: "16:9" | "9:16";
+  modelKey?: string;
   startImage?: { data: Buffer; mimeType: string };
   endImage?: { data: Buffer; mimeType: string };
 };
@@ -32,10 +33,16 @@ export function resolveVideoKind(input: CreateVideoInput): JobKind {
   return "text_video";
 }
 
-export function mapVideoModelKey(duration: number): string {
-  // Captured live from Flow UI text→video create (2026-07-15).
-  if (duration <= 4) return "abra_t2v_4s";
-  return "abra_t2v_4s";
+const MODEL_KEY_MAP: Record<string, string> = {
+  "flow-veo-3.1-fast": "veo_3_1_t2v_fast",
+  "flow-veo-3.1-lite": "veo_3_1_t2v_lite",
+  "flow-veo-3.1-quality": "veo_3_1_t2v_quality",
+  "flow-video-fast-4s": "abra_t2v_4s",
+};
+
+export function mapVideoModelKey(model?: string): string {
+  if (model && MODEL_KEY_MAP[model]) return MODEL_KEY_MAP[model];
+  return "veo_3_1_t2v_fast";
 }
 
 export function mapVideoEndpoint(kind: JobKind): string {
@@ -65,7 +72,7 @@ export async function createFlowVideoJob(input: {
 }): Promise<VideoUpstreamState> {
   const kind = resolveVideoKind(input.video);
   const endpoint = mapVideoEndpoint(kind);
-  const modelKey = mapVideoModelKey(input.video.duration);
+  const modelKey = mapVideoModelKey(input.video.modelKey);
   // Flow frontend uses grecaptcha action VIDEO_GENERATION for all video creates.
   const token = await createRecaptchaToken(input.page, {
     siteKey: input.siteKey,
@@ -370,7 +377,10 @@ export async function pollFlowVideoJob(input: {
         generatedVideos?: Array<{ fifeUrl?: string; url?: string }>;
         media?: Array<{ video?: { fifeUrl?: string }; fifeUrl?: string; status?: string }>;
       };
+      const metadata = (nested as { metadata?: { video?: { fifeUrl?: string } } } | undefined)
+        ?.metadata;
       const videoUrl =
+        metadata?.video?.fifeUrl ||
         response.video?.fifeUrl ||
         response.video?.url ||
         response.fifeUrl ||
@@ -400,7 +410,7 @@ export async function pollFlowVideoJob(input: {
       const urls = collectUrls(parsed);
       let foundUrl =
         videoUrl ||
-        urls.find((u) => /fife|googlevideo|videoplayback|\.mp4|mh\//i.test(u)) ||
+        urls.find((u) => /fife|googlevideo|videoplayback|flow-content|\.mp4|mh\//i.test(u)) ||
         "";
 
       if (
