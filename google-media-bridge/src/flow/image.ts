@@ -202,7 +202,17 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
     lastStatus = result.status;
     lastRaw = result.raw;
 
-    if (result.status === 401 || result.status === 403) throw new Error("FLOW_REAUTH_REQUIRED");
+    // 403 reCAPTCHA (PUBLIC_ERROR_UNUSUAL_ACTIVITY) ≠ session hết hạn.
+    // Map nhầm sang FLOW_REAUTH_REQUIRED sẽ giết cả pool.
+    if (result.status === 401) throw new Error("FLOW_REAUTH_REQUIRED");
+    if (result.status === 403) {
+      if (/recaptcha|captcha|UNUSUAL_ACTIVITY|PERMISSION_DENIED/i.test(result.raw)) {
+        recaptchaFailures += 1;
+        if (attempt === 0) continue;
+        throw new Error("FLOW_RECAPTCHA_FAILED");
+      }
+      throw new Error("FLOW_REAUTH_REQUIRED");
+    }
     if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
     if (result.status === 200) {
       const urls = extractFifeUrls(result.raw);

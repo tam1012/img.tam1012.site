@@ -20,27 +20,39 @@ async function main() {
   const base = `http://127.0.0.1:${port}`;
   const bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
 
-  const post = async (path, body) => {
-    const res = await fetch(`${base}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${adminKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    let json = {};
+  const post = async (path, body, timeoutMs = 30_000) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      json = JSON.parse(text);
-    } catch {
-      /* keep raw */
+      const res = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let json = {};
+      try {
+        json = JSON.parse(text);
+      } catch {
+        /* keep raw */
+      }
+      return { status: res.status, json, text };
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        throw new Error(`timeout after ${timeoutMs}ms calling ${path}`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
-    return { status: res.status, json, text };
   };
 
   // Bridge tự dedup theo email: 201 = account mới, 200 = đăng nhập lại account cũ.
-  const enroll = await post("/admin/v1/enrollments", { bundle });
+  const enroll = await post("/admin/v1/enrollments", { bundle }, 30_000);
   if (enroll.status !== 201 && enroll.status !== 200) {
     throw new Error(`enroll failed HTTP ${enroll.status}: ${enroll.text.slice(0, 200)}`);
   }
@@ -48,10 +60,18 @@ async function main() {
   const reauth = enroll.status === 200 || account.reauth === true;
 
   // Xác nhận account healthy (đồng thời tự khám phá projectId/siteKey nếu thiếu).
+  // Timeout 90s — nếu proxy/mạng treo, script phải báo lỗi chứ không đứng im.
   let verifyStatus = "unknown";
   if (account.id) {
-    const verify = await post(`/admin/v1/accounts/${account.id}/verify`, {});
-    verifyStatus = verify.status === 200 ? (verify.json.status || "healthy") : `verify_http_${verify.status}`;
+    try {
+      const verify = await post(`/admin/v1/accounts/${account.id}/verify`, {}, 90_000);
+      verifyStatus =
+        verify.status === 200
+          ? verify.json.status || "healthy"
+          : `verify_http_${verify.status}${verify.json?.error ? ":" + verify.json.error : ""}`;
+    } catch (error) {
+      verifyStatus = error instanceof Error ? `verify_error:${error.message}` : "verify_error";
+    }
   }
 
   process.stdout.write(

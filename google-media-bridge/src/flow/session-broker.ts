@@ -61,7 +61,10 @@ export async function readSession(
   options: { verifyScope?: boolean } = {},
 ): Promise<SessionBrokerResult> {
   const verifyScope = options.verifyScope ?? true;
-  await page.goto(FLOW_URL, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+  // Timeout cứng — proxy/mạng chậm không được treo verify/generate vô hạn.
+  await page
+    .goto(FLOW_URL, { waitUntil: "domcontentloaded", timeout: 25_000 })
+    .catch(() => undefined);
   const result = await page.evaluate(
     async ([endpoint, scope, doVerify]) => {
       const res = await fetch(endpoint, { credentials: "include" });

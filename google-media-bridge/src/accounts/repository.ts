@@ -114,12 +114,26 @@ export function createAccountRepository(db: BridgeDatabase) {
       status: AccountStatus,
       extra: { cooldownUntil?: string | null; failureCode?: string | null } = {},
     ): void {
+      // Dùng 'in' để phân biệt "không truyền" vs "truyền null" — null phải xoá được
+      // failure_code/cooldown (COALESCE(null, old) sẽ giữ old, sai khi reauth thành công).
+      const setCooldown = Object.prototype.hasOwnProperty.call(extra, "cooldownUntil");
+      const setFailure = Object.prototype.hasOwnProperty.call(extra, "failureCode");
       db.prepare(
         `UPDATE accounts
-         SET status = ?, cooldown_until = COALESCE(?, cooldown_until),
-             failure_code = COALESCE(?, failure_code), updated_at = ?
+         SET status = ?,
+             cooldown_until = CASE WHEN ? = 1 THEN ? ELSE cooldown_until END,
+             failure_code = CASE WHEN ? = 1 THEN ? ELSE failure_code END,
+             updated_at = ?
          WHERE id = ?`,
-      ).run(status, extra.cooldownUntil ?? null, extra.failureCode ?? null, nowIso(), id);
+      ).run(
+        status,
+        setCooldown ? 1 : 0,
+        extra.cooldownUntil ?? null,
+        setFailure ? 1 : 0,
+        extra.failureCode ?? null,
+        nowIso(),
+        id,
+      );
     },
 
     setProjectMeta(id: string, projectId: string | null, siteKey: string | null): void {
@@ -131,7 +145,12 @@ export function createAccountRepository(db: BridgeDatabase) {
     markVerified(id: string): void {
       const ts = nowIso();
       db.prepare(
-        `UPDATE accounts SET last_verified_at = ?, status = CASE WHEN status = 'reauth_required' THEN 'healthy' ELSE status END, updated_at = ? WHERE id = ?`,
+        `UPDATE accounts
+         SET last_verified_at = ?,
+             failure_code = NULL,
+             status = CASE WHEN status IN ('reauth_required', 'busy') THEN 'healthy' ELSE status END,
+             updated_at = ?
+         WHERE id = ?`,
       ).run(ts, ts, id);
     },
 

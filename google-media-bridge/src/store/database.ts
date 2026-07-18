@@ -21,6 +21,15 @@ export function openDatabase(dbPath: string): BridgeDatabase {
   const sql = readFileSync(schemaPath(), "utf8");
   db.exec(sql);
   migrate(db);
+  // Restart process → mọi lease in-memory chết; active_leases/busy trong DB phải reset
+  // nếu không account sẽ kẹt busy mãi, pool tưởng đang bận.
+  db.prepare(
+    `UPDATE accounts
+     SET active_leases = 0,
+         status = CASE WHEN status = 'busy' THEN 'healthy' ELSE status END,
+         updated_at = ?
+     WHERE active_leases > 0 OR status = 'busy'`,
+  ).run(nowIso());
   return db;
 }
 

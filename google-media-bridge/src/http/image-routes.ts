@@ -60,6 +60,7 @@ export function registerImageRoutes(
     if (message.includes("FLOW_UNAUTHORIZED")) return 401;
     if (message.includes("FLOW_POOL_UNAVAILABLE")) return 503;
     if (message.includes("FLOW_INVALID_REQUEST")) return 400;
+    if (message.includes("FLOW_RECAPTCHA_FAILED")) return 502;
     return 502;
   }
 
@@ -69,7 +70,9 @@ export function registerImageRoutes(
     } else if (message.includes("FLOW_QUOTA_EXCEEDED")) {
       deps.scheduler.applyHttpResult(accountId, 429, 0);
     } else if (message.includes("FLOW_RECAPTCHA_FAILED")) {
-      deps.scheduler.applyHttpResult(accountId, 200, 2);
+      // Cooldown thay vì blocked — reCAPTCHA "unusual activity" hay do IP/VPS tạm thời,
+      // không phải account hỏng vĩnh viễn.
+      deps.scheduler.applyHttpResult(accountId, 429, 0);
     }
   }
 
