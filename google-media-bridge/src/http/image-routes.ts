@@ -120,8 +120,24 @@ export function registerImageRoutes(
     if (message.includes("FLOW_UNAUTHORIZED")) return 401;
     if (message.includes("FLOW_POOL_UNAVAILABLE")) return 503;
     if (message.includes("FLOW_INVALID_REQUEST")) return 400;
-    if (message.includes("FLOW_RECAPTCHA_FAILED")) return 502;
+    if (
+      message.includes("FLOW_RECAPTCHA_FAILED") ||
+      message.includes("FLOW_RECAPTCHA_UNAVAILABLE")
+    ) {
+      return 502;
+    }
     return 502;
+  }
+
+  function isRecaptchaError(message: string): boolean {
+    return (
+      message.includes("FLOW_RECAPTCHA_FAILED") ||
+      message.includes("FLOW_RECAPTCHA_UNAVAILABLE")
+    );
+  }
+
+  function isRetryableAccountError(message: string): boolean {
+    return message.includes("FLOW_REAUTH_REQUIRED") || isRecaptchaError(message);
   }
 
   function recordError(accountId: string, message: string): void {
@@ -129,10 +145,12 @@ export function registerImageRoutes(
       deps.scheduler.applyHttpResult(accountId, 401, 0);
     } else if (message.includes("FLOW_QUOTA_EXCEEDED")) {
       deps.scheduler.applyHttpResult(accountId, 429, 0);
+    } else if (message.includes("FLOW_RECAPTCHA_UNAVAILABLE")) {
+      // Script chưa sẵn / page cold — cooldown ngắn, không đốt pool 15 phút.
+      deps.scheduler.applyCooldown(accountId, 60_000, "recaptcha_unavailable");
     } else if (message.includes("FLOW_RECAPTCHA_FAILED")) {
-      // Cooldown thay vì blocked — reCAPTCHA "unusual activity" hay do IP/VPS tạm thời,
-      // không phải account hỏng vĩnh viễn.
-      deps.scheduler.applyHttpResult(accountId, 429, 0);
+      // Risk score / unusual activity tạm thời — 3 phút thay vì 15 phút quota.
+      deps.scheduler.applyCooldown(accountId, 3 * 60_000, "recaptcha");
     }
   }
 
@@ -153,8 +171,8 @@ export function registerImageRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : "FLOW_UPSTREAM_REJECTED";
 
-      // Nếu lỗi reauth, thử fallback sang một account healthy khác.
-      if (message.includes("FLOW_REAUTH_REQUIRED") && leaseAccountId) {
+      // reauth / reCAPTCHA: ghi nhận account hiện tại rồi thử 1 account healthy khác.
+      if (isRetryableAccountError(message) && leaseAccountId) {
         recordError(leaseAccountId, message);
         deps.scheduler.release(leaseAccountId);
         leaseAccountId = null;

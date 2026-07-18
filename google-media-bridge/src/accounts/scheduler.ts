@@ -111,6 +111,21 @@ export function createScheduler(db: BridgeDatabase, maxConcurrency = 1) {
         accountId,
       );
     },
+
+    /**
+     * Soft cooldown (reCAPTCHA/proxy blip). Default quota path is 15 min;
+     * reCAPTCHA should be much shorter so one blip does not burn the whole pool.
+     */
+    applyCooldown(accountId: string, cooldownMs: number, failureCode: string): void {
+      const now = nowIso();
+      const ms = Math.max(5_000, Math.min(cooldownMs, 30 * 60_000));
+      const cooldownUntil = new Date(Date.now() + ms).toISOString();
+      db.prepare(
+        `UPDATE accounts
+         SET status = 'cooldown', cooldown_until = ?, failure_code = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(cooldownUntil, failureCode.slice(0, 80), now, accountId);
+    },
   };
 }
 

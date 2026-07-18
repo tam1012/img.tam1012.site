@@ -99,8 +99,15 @@ export function registerVideoRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : "FLOW_UPSTREAM_REJECTED";
       if (leaseAccountId) {
-        if (message.includes("FLOW_REAUTH_REQUIRED")) deps.scheduler.applyHttpResult(leaseAccountId, 401);
-        if (message.includes("FLOW_QUOTA_EXCEEDED")) deps.scheduler.applyHttpResult(leaseAccountId, 429);
+        if (message.includes("FLOW_REAUTH_REQUIRED")) {
+          deps.scheduler.applyHttpResult(leaseAccountId, 401);
+        } else if (message.includes("FLOW_QUOTA_EXCEEDED")) {
+          deps.scheduler.applyHttpResult(leaseAccountId, 429);
+        } else if (message.includes("FLOW_RECAPTCHA_UNAVAILABLE")) {
+          deps.scheduler.applyCooldown(leaseAccountId, 60_000, "recaptcha_unavailable");
+        } else if (message.includes("FLOW_RECAPTCHA_FAILED")) {
+          deps.scheduler.applyCooldown(leaseAccountId, 3 * 60_000, "recaptcha");
+        }
       }
       const status = message.includes("FLOW_POOL_UNAVAILABLE")
         ? 503

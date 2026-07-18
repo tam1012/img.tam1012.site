@@ -47,6 +47,21 @@ describe("scheduler", () => {
     expect(nextAccountStatus(200, 2)).toEqual({ status: "blocked" });
   });
 
+  it("applyCooldown sets short soft cooldown without 15m quota path", () => {
+    const db = openDatabase(":memory:");
+    seed(db, "a", "healthy", null);
+    const scheduler = createScheduler(db, 1);
+    scheduler.applyCooldown("a", 60_000, "recaptcha_unavailable");
+    const row = db
+      .prepare(`SELECT status, failure_code, cooldown_until FROM accounts WHERE id = 'a'`)
+      .get() as { status: string; failure_code: string; cooldown_until: string };
+    expect(row.status).toBe("cooldown");
+    expect(row.failure_code).toBe("recaptcha_unavailable");
+    expect(new Date(row.cooldown_until).getTime()).toBeGreaterThan(Date.now());
+    expect(new Date(row.cooldown_until).getTime()).toBeLessThan(Date.now() + 90_000);
+    db.close();
+  });
+
   it("throws FLOW_POOL_UNAVAILABLE when empty", () => {
     const db = openDatabase(":memory:");
     const scheduler = createScheduler(db, 1);

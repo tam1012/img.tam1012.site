@@ -269,7 +269,10 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
     let token: string;
     try {
       token = await createRecaptchaToken(input.page, { siteKey: input.siteKey, action });
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      // Script chưa sẵn: không đốt thêm attempt như execute fail — ném thẳng để route map soft cooldown.
+      if (msg.includes("FLOW_RECAPTCHA_UNAVAILABLE")) throw err;
       recaptchaFailures += 1;
       if (recaptchaFailures >= 2) throw new Error("FLOW_RECAPTCHA_FAILED");
       continue;
