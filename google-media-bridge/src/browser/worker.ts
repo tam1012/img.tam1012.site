@@ -44,6 +44,20 @@ function parseProxyUrl(raw?: string): ProxySettings | undefined {
   return { server };
 }
 
+// Proxy HTTP/2 qua một số residential hay treo domcontentloaded trên labs.google.
+// Tắt HTTP/2/QUIC giúp Chromium đi ổn định qua proxy (đã verify trên VPS).
+const CHROMIUM_ARGS = [
+  "--no-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-background-networking",
+  "--disable-http2",
+  "--disable-quic",
+  "--disable-blink-features=AutomationControlled",
+];
+
+const DEFAULT_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
 export function createBrowserWorkerPool(options: PoolOptions): BrowserWorkerPool {
   let browser: Browser | undefined;
   const slots = new Map<string, Slot>();
@@ -54,11 +68,7 @@ export function createBrowserWorkerPool(options: PoolOptions): BrowserWorkerPool
       browser = await chromium.launch({
         executablePath: options.chromiumPath,
         headless: true,
-        args: [
-          "--no-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-background-networking",
-        ],
+        args: CHROMIUM_ARGS,
       });
     }
     return browser;
@@ -97,7 +107,14 @@ export function createBrowserWorkerPool(options: PoolOptions): BrowserWorkerPool
           cookies: storageState.cookies as never,
           origins: storageState.origins as never,
         },
+        userAgent: DEFAULT_UA,
+        locale: "vi-VN",
+        viewport: { width: 1365, height: 900 },
         ...(proxy ? { proxy } : {}),
+      });
+      // Giảm tín hiệu automation — reCAPTCHA Flow hay flag headless thuần.
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, "webdriver", { get: () => undefined });
       });
       const page = await context.newPage();
       slots.set(accountId, { context, page });
