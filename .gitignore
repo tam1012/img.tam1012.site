@@ -41,3 +41,9 @@ google-flow-enroller/dist/
 tmp/
 
 .local-tmp/
+
+# IMG Studio Telegram watchdog secrets/state/log (VPS only)
+ops/watchdog/.env
+ops/watchdog/state.json
+ops/watchdog/watchdog.log
+ops/watchdog/*.log
