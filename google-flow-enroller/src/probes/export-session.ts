@@ -1,4 +1,6 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
@@ -16,18 +18,41 @@ function log(message: string) {
   process.stderr.write(`${message}\n`);
 }
 
-// parseProxyUrl: tách proxy URL dạng http://user:pass@host:port
-// thành { server, username, password } cho Playwright.
-// Chrome --proxy-server KHÔNG hỗ trợ auth trong URL nên phải
-// dùng Playwright launch với proxy option (có xử lý auth sẵn).
-function parseProxyUrl(raw?: string): { server: string; username?: string; password?: string } | undefined {
-  if (!raw) return undefined;
-  const m = raw.match(/^(https?):\/\/(?:([^:]*):([^@]*)@)?(.+)$/);
-  if (!m) return undefined;
-  const [, scheme, user, pass, hostPort] = m;
-  const server = `${scheme}://${hostPort}`;
-  if (user && pass) return { server, username: user, password: pass };
-  return { server };
+async function freeLoopbackPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address && typeof address === "object") {
+        const { port } = address;
+        server.close(() => resolve(port));
+      } else {
+        server.close(() => reject(new Error("Could not determine free port")));
+      }
+    });
+  });
+}
+
+// Mở Chrome thật của máy (không phải Chromium Playwright) để tránh
+// Google phát hiện automation (navigator.webdriver). Dùng CDP để
+// Playwright kết nối vào browser có sẵn.
+//
+// KHÔNG dùng --proxy-server vì Chrome flag này không hỗ trợ auth
+// (user:pass). Enroll từ IP thật VN, runtime bridge mới dùng proxy.
+function spawnChrome(chromePath: string, port: number, userDataDir: string): ChildProcess {
+  return spawn(
+    chromePath,
+    [
+      "--remote-debugging-address=127.0.0.1",
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${userDataDir}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      FLOW_URL,
+    ],
+    { stdio: "ignore", detached: false },
+  );
 }
 
 // Runs inside the page. The access token never leaves the browser: scope is
@@ -116,11 +141,11 @@ async function waitForFlowSession(page: Page, timeoutMs: number): Promise<Sessio
 
 // Opens an isolated Chrome at Flow, waits for the user to log in, then captures
 // the storage state + account email and returns an encrypted enrollment bundle.
-// Plaintext storage state / token never touch disk. Reused by the probe entry
-// point and the one-click enroll-and-push orchestrator.
+// Plaintext storage state / token never touch disk.
 //
-// Dùng Playwright chromium.launch (không spawn + CDP như trước) để Playwright
-// tự xử lý proxy auth. Chrome --proxy-server không hỗ trợ user:pass trong URL.
+// Dùng Chrome thật của máy (spawn + CDP) thay vì Playwright launch để tránh
+// Google chặn "This browser or app may not be secure". Enroll từ IP thật VN,
+// runtime bridge trên VPS mới dùng proxy dân cư sticky.
 export async function captureFlowSession(options: {
   publicKeyFile: string;
   chromePath?: string;
@@ -131,26 +156,29 @@ export async function captureFlowSession(options: {
   const chromePath = options.chromePath ?? findChromePath();
   if (!chromePath) throw new Error("Could not locate Chrome. Set FLOW_CHROME_PATH.");
   const loginTimeoutMs = options.loginTimeoutMs ?? Number(process.env.FLOW_LOGIN_TIMEOUT_MS ?? 15 * 60_000);
-  const proxy = parseProxyUrl(process.env.FLOW_PROXY_URL || undefined);
-  if (proxy) emit(`Sử dụng proxy: ${proxy.server}${proxy.username ? ' (có auth)' : ''}`);
-
   const userDataDir = await mkdtemp(join(tmpdir(), "flow-enroll-"));
+  const port = await freeLoopbackPort();
+  let chrome: ChildProcess | undefined;
   let browser: Browser | undefined;
   try {
     emit("Đang mở Chrome tại Google Flow. Hãy đăng nhập trong cửa sổ vừa mở.");
-    const context = await chromium.launchPersistentContext(userDataDir, {
-      executablePath: chromePath,
-      headless: false,
-      args: [
-        "--no-first-run",
-        "--no-default-browser-check",
-      ],
-      ...(proxy ? { proxy } : {}),
-    });
-    if (!context.browser()) throw new Error("Browser not available from persistent context");
-    browser = context.browser()!;
+    chrome = spawnChrome(chromePath, port, userDataDir);
 
-    const page = context.pages()[0];
+    let connected = false;
+    const connectDeadline = Date.now() + 30_000;
+    while (!connected) {
+      try {
+        browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+        connected = true;
+      } catch (error) {
+        if (Date.now() > connectDeadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+    if (!browser) throw new Error("Failed to connect to Chrome over CDP");
+
+    const context = browser.contexts()[0] ?? (await browser.newContext());
+    const page = context.pages()[0] ?? (await context.newPage());
     await page.goto(FLOW_URL, { waitUntil: "domcontentloaded" }).catch(() => undefined);
 
     const summary = await waitForFlowSession(page, loginTimeoutMs);
@@ -169,6 +197,7 @@ export async function captureFlowSession(options: {
     return { encrypted, email };
   } finally {
     if (browser) await browser.close().catch(() => undefined);
+    if (chrome && !chrome.killed) chrome.kill();
     await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
