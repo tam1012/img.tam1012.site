@@ -73,7 +73,7 @@ export function registerVideoRoutes(
       if (!account?.projectId || !(account.siteKey || deps.config.recaptchaSiteKey)) {
         throw new Error("FLOW_REAUTH_REQUIRED");
       }
-      const browser = await deps.browsers.forAccount(account.id);
+      const browser = await deps.browsers.forAccount(account.id, { proxy: true });
       const session = await readSession(browser.page);
       const upstream = await createFlowVideoJob({
         page: browser.page,

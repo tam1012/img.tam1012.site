@@ -13,7 +13,7 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends chromium ca-certificates fonts-noto-color-emoji \
+  && apt-get install -y --no-install-recommends chromium ca-certificates fonts-noto-color-emoji xvfb \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd -g 1002 flowbridge \
   && useradd -u 1002 -g 1002 -m -s /bin/bash flowbridge

@@ -10,7 +10,7 @@ export type AccountBrowser = {
 };
 
 export interface BrowserWorkerPool {
-  forAccount(accountId: string): Promise<AccountBrowser>;
+  forAccount(accountId: string, opts?: { proxy?: boolean }): Promise<AccountBrowser>;
   invalidate(accountId: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -44,8 +44,8 @@ function parseProxyUrl(raw?: string): ProxySettings | undefined {
   return { server };
 }
 
-// Proxy HTTP/2 qua một số residential hay treo domcontentloaded trên labs.google.
-// Tắt HTTP/2/QUIC giúp Chromium đi ổn định qua proxy (đã verify trên VPS).
+// Xvfb + non-headless = better reCAPTCHA Enterprise score.
+// DISPLAY env is set by docker-entrypoint.sh.
 const CHROMIUM_ARGS = [
   "--no-sandbox",
   "--disable-dev-shm-usage",
@@ -53,6 +53,7 @@ const CHROMIUM_ARGS = [
   "--disable-http2",
   "--disable-quic",
   "--disable-blink-features=AutomationControlled",
+  "--disable-features=TranslateUI,BlinkGenPropertyTrees",
 ];
 
 const DEFAULT_UA =
@@ -61,22 +62,81 @@ const DEFAULT_UA =
 export function createBrowserWorkerPool(options: PoolOptions): BrowserWorkerPool {
   let browser: Browser | undefined;
   const slots = new Map<string, Slot>();
+  const slotsDirect = new Map<string, Slot>();
   const proxy = parseProxyUrl(options.proxyUrl);
 
   async function ensureBrowser(): Promise<Browser> {
     if (!browser) {
+      const display = process.env.DISPLAY || ":99";
       browser = await chromium.launch({
         executablePath: options.chromiumPath,
-        headless: true,
-        args: CHROMIUM_ARGS,
+        headless: false,
+        args: [
+          ...CHROMIUM_ARGS,
+          `--display=${display}`,
+        ],
       });
     }
     return browser;
   }
 
+  async function createContextForAccount(
+    accountId: string,
+    useProxy: boolean,
+  ): Promise<AccountBrowser> {
+    const account = options.accounts.get(accountId);
+    if (!account) throw new Error(`unknown account ${accountId}`);
+    const storageState = decryptJSON<{ cookies: unknown[]; origins: unknown[] }>(
+      options.vaultKey,
+      account.encryptedStorageState,
+    );
+    const ctxProxy = useProxy ? proxy : undefined;
+    const b = await ensureBrowser();
+    const context = await b.newContext({
+      storageState: {
+        cookies: storageState.cookies as never,
+        origins: storageState.origins as never,
+      },
+      userAgent: DEFAULT_UA,
+      locale: "vi-VN",
+      viewport: { width: 1365, height: 900 },
+      ...(ctxProxy ? { proxy: ctxProxy } : {}),
+    });
+    // Giảm tín hiệu automation — reCAPTCHA Flow hay flag headless thuần.
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    });
+    const page = await context.newPage();
+    const slotMap = useProxy ? slots : slotsDirect;
+    const existing = slotMap.get(accountId);
+    if (existing) {
+      await existing.context.close().catch(() => undefined);
+    }
+    slotMap.set(accountId, { context, page });
+
+    const handle: AccountBrowser = {
+      page,
+      context,
+      async persist() {
+        const state = await context.storageState({ indexedDB: true });
+        options.accounts.updateStorageState(accountId, encryptJSON(options.vaultKey, state));
+      },
+      async close() {
+        slotMap.delete(accountId);
+        await context.close().catch(() => undefined);
+      },
+    };
+    return handle;
+  }
+
   return {
-    async forAccount(accountId: string): Promise<AccountBrowser> {
-      const existing = slots.get(accountId);
+    async forAccount(
+      accountId: string,
+      opts?: { proxy?: boolean },
+    ): Promise<AccountBrowser> {
+      const useProxy = opts?.proxy !== false;
+      const slotMap = useProxy ? slots : slotsDirect;
+      const existing = slotMap.get(accountId);
       if (existing) {
         return {
           page: existing.page,
@@ -89,61 +149,30 @@ export function createBrowserWorkerPool(options: PoolOptions): BrowserWorkerPool
             );
           },
           async close() {
-            slots.delete(accountId);
+            slotMap.delete(accountId);
             await existing.context.close().catch(() => undefined);
           },
         };
       }
-
-      const account = options.accounts.get(accountId);
-      if (!account) throw new Error(`unknown account ${accountId}`);
-      const storageState = decryptJSON<{ cookies: unknown[]; origins: unknown[] }>(
-        options.vaultKey,
-        account.encryptedStorageState,
-      );
-      const b = await ensureBrowser();
-      const context = await b.newContext({
-        storageState: {
-          cookies: storageState.cookies as never,
-          origins: storageState.origins as never,
-        },
-        userAgent: DEFAULT_UA,
-        locale: "vi-VN",
-        viewport: { width: 1365, height: 900 },
-        ...(proxy ? { proxy } : {}),
-      });
-      // Giảm tín hiệu automation — reCAPTCHA Flow hay flag headless thuần.
-      await context.addInitScript(() => {
-        Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-      });
-      const page = await context.newPage();
-      slots.set(accountId, { context, page });
-
-      const handle: AccountBrowser = {
-        page,
-        context,
-        async persist() {
-          const state = await context.storageState({ indexedDB: true });
-          options.accounts.updateStorageState(accountId, encryptJSON(options.vaultKey, state));
-        },
-        async close() {
-          slots.delete(accountId);
-          await context.close().catch(() => undefined);
-        },
-      };
-      return handle;
+      return createContextForAccount(accountId, useProxy);
     },
 
     async invalidate(accountId: string): Promise<void> {
-      const slot = slots.get(accountId);
-      if (!slot) return;
-      slots.delete(accountId);
-      await slot.context.close().catch(() => undefined);
+      for (const map of [slots, slotsDirect]) {
+        const slot = map.get(accountId);
+        if (!slot) continue;
+        map.delete(accountId);
+        await slot.context.close().catch(() => undefined);
+      }
     },
 
     async close(): Promise<void> {
-      for (const accountId of [...slots.keys()]) {
-        await this.invalidate(accountId);
+      for (const map of [slots, slotsDirect]) {
+        for (const accountId of [...map.keys()]) {
+          const slot = map.get(accountId)!;
+          map.delete(accountId);
+          await slot.context.close().catch(() => undefined);
+        }
       }
       if (browser) {
         await browser.close().catch(() => undefined);

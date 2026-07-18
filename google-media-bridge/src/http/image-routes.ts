@@ -58,12 +58,13 @@ export function registerImageRoutes(
       projectId: string;
       siteKey: string;
     }) => Promise<T>,
+    opts?: { proxy?: boolean },
   ): Promise<T> {
     const account = deps.accounts.get(accountId);
     if (!account?.projectId || !(account.siteKey || deps.config.recaptchaSiteKey)) {
       throw new Error("FLOW_REAUTH_REQUIRED");
     }
-    const browser = await deps.browsers.forAccount(account.id);
+    const browser = await deps.browsers.forAccount(account.id, { proxy: opts?.proxy !== false });
     const session = await readSession(browser.page);
     const result = await run({
       page: browser.page,
@@ -76,7 +77,7 @@ export function registerImageRoutes(
   }
 
   // Chạy generate ảnh với account đã được acquire. Không xử lý error mapping.
-  async function doGenerate(accountId: string, body: z.infer<typeof imageRequest>) {
+  async function doGenerate(accountId: string, body: z.infer<typeof imageRequest>, proxyOpts?: { proxy?: boolean }) {
     return withAccountSession(accountId, (ctx) =>
       generateFlowImages({
         page: ctx.page,
@@ -89,10 +90,10 @@ export function registerImageRoutes(
         size: body.size,
         n: body.n,
       }),
-    );
+    proxyOpts);
   }
 
-  async function doEdit(accountId: string, body: z.infer<typeof editImageBody>) {
+  async function doEdit(accountId: string, body: z.infer<typeof editImageBody>, proxyOpts?: { proxy?: boolean }) {
     return withAccountSession(accountId, (ctx) =>
       editFlowImages({
         page: ctx.page,
@@ -113,7 +114,7 @@ export function registerImageRoutes(
           };
         }),
       }),
-    );
+    proxyOpts);
   }
 
   function errorStatus(message: string): number {
@@ -156,13 +157,13 @@ export function registerImageRoutes(
 
   async function runWithLease(
     reply: { code: (status: number) => { send: (body: unknown) => unknown } },
-    work: (accountId: string) => Promise<{ images: Array<{ b64_json?: string }> }>,
+    work: (accountId: string, opts?: { proxy?: boolean }) => Promise<{ images: Array<{ b64_json?: string }> }>,
   ) {
     let leaseAccountId: string | null = null;
     try {
       const lease = deps.scheduler.acquire("image");
       leaseAccountId = lease.accountId;
-      const result = await work(leaseAccountId);
+      const result = await work(leaseAccountId, { proxy: true });
       deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
       return {
         created: Math.floor(Date.now() / 1000),
@@ -171,7 +172,24 @@ export function registerImageRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : "FLOW_UPSTREAM_REJECTED";
 
-      // reauth / reCAPTCHA: ghi nhận account hiện tại rồi thử 1 account healthy khác.
+      // Auto-fallback: proxy recaptcha fail → retry same account WITHOUT proxy (direct egress).
+      if (isRecaptchaError(message) && leaseAccountId) {
+        try {
+          const result = await work(leaseAccountId, { proxy: false });
+          deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
+          return {
+            created: Math.floor(Date.now() / 1000),
+            data: result.images.map((img) => ({ b64_json: img.b64_json })),
+          };
+        } catch (directError) {
+          const directMessage =
+            directError instanceof Error ? directError.message : "FLOW_UPSTREAM_REJECTED";
+          recordError(leaseAccountId, directMessage);
+          // fall through to reauth fallback below
+        }
+      }
+
+      // reauth / reCAPTCHA fallback: thử 1 account healthy khác (đã proxy, lần 2 trực tiếp).
       if (isRetryableAccountError(message) && leaseAccountId) {
         recordError(leaseAccountId, message);
         deps.scheduler.release(leaseAccountId);
@@ -180,7 +198,13 @@ export function registerImageRoutes(
         try {
           const retryLease = deps.scheduler.acquire("image");
           leaseAccountId = retryLease.accountId;
-          const result = await work(leaseAccountId);
+          // Try direct first on fallback — proxy already failed on prior account.
+          let result;
+          try {
+            result = await work(leaseAccountId, { proxy: false });
+          } catch {
+            result = await work(leaseAccountId, { proxy: true });
+          }
           deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
           return {
             created: Math.floor(Date.now() / 1000),
@@ -211,7 +235,7 @@ export function registerImageRoutes(
         .code(400)
         .send({ error: { message: "only b64_json is supported", code: "FLOW_INVALID_REQUEST" } });
     }
-    return runWithLease(reply, (accountId) => doGenerate(accountId, body));
+    return runWithLease(reply, (accountId, o) => doGenerate(accountId, body, o));
   });
 
   app.post("/v1/images/edits", async (request, reply) => {
@@ -230,6 +254,6 @@ export function registerImageRoutes(
           .send({ error: { message: "empty image", code: "FLOW_INVALID_REQUEST" } });
       }
     }
-    return runWithLease(reply, (accountId) => doEdit(accountId, body));
+    return runWithLease(reply, (accountId, o) => doEdit(accountId, body, o));
   });
 }
