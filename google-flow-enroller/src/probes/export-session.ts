@@ -138,18 +138,18 @@ export async function captureFlowSession(options: {
   let browser: Browser | undefined;
   try {
     emit("Đang mở Chrome tại Google Flow. Hãy đăng nhập trong cửa sổ vừa mở.");
-    browser = await chromium.launch({
+    const context = await chromium.launchPersistentContext(userDataDir, {
       executablePath: chromePath,
       headless: false,
       args: [
-        `--user-data-dir=${userDataDir}`,
         "--no-first-run",
         "--no-default-browser-check",
       ],
       ...(proxy ? { proxy } : {}),
     });
+    if (!context.browser()) throw new Error("Browser not available from persistent context");
+    browser = context.browser()!;
 
-    const context = browser.contexts()[0];
     const page = context.pages()[0];
     await page.goto(FLOW_URL, { waitUntil: "domcontentloaded" }).catch(() => undefined);
 
