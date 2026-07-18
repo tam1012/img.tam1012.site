@@ -391,10 +391,13 @@ async function generateFlowVideo(input: GenerateVideoInput, filePath: string): P
   console.log(`[Flow video] created model=${input.model} request_id=${created.request_id}`);
 
   const startTime = Date.now();
+  // Omni Flash / Flow video qua proxy hay >10 phút (render ACTIVE + tải mp4).
+  // Job thật 21:48 VN đã SUCCESSFUL ~10.5p nhưng app timeout 10p → fail oan + refund.
+  const FLOW_VIDEO_TIMEOUT_MS = 20 * 60_000;
   while (true) {
-    if (Date.now() - startTime > 600_000) {
+    if (Date.now() - startTime > FLOW_VIDEO_TIMEOUT_MS) {
       console.error(`[Flow video] timeout after ${Math.round((Date.now() - startTime) / 1000)}s request_id=${created.request_id}`);
-      throw new Error("Tạo video quá thời gian chờ (10 phút)");
+      throw new Error("Tạo video quá thời gian chờ (20 phút)");
     }
     await new Promise((r) => setTimeout(r, 5_000));
 
