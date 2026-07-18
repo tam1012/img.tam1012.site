@@ -48,7 +48,8 @@ export async function buildApp(config: BridgeConfig): Promise<BridgeApp> {
         remove: true,
       },
     },
-    bodyLimit: 12 * 1024 * 1024,
+    // Edit may send multiple base64 images (upload + prompt) in one JSON body.
+    bodyLimit: 20 * 1024 * 1024,
   });
 
   await app.register(multipart, {

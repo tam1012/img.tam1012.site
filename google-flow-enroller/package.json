@@ -10,7 +10,8 @@
     "status": "tsx src/flow-status.ts",
     "probe:export": "tsx src/probes/export-session.ts",
     "probe:meta": "tsx src/probes/read-flow-meta.ts",
-    "probe:video-meta": "tsx src/probes/read-flow-video-meta.ts"
+    "probe:video-meta": "tsx src/probes/read-flow-video-meta.ts",
+    "probe:image-edit-meta": "tsx src/probes/read-flow-image-edit-meta.ts"
   },
   "dependencies": {
     "fastify": "5.10.0",

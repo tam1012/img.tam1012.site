@@ -4,24 +4,41 @@ import type { AccountRepository } from "../accounts/repository.js";
 import type { Scheduler } from "../accounts/scheduler.js";
 import type { BrowserWorkerPool } from "../browser/worker.js";
 import type { BridgeConfig } from "../config.js";
-import { generateFlowImages } from "../flow/image.js";
+import { editFlowImages, generateFlowImages } from "../flow/image.js";
 import { readSession } from "../flow/session-broker.js";
 import { requireApiKey } from "./auth.js";
 
+const FLOW_IMAGE_MODELS = [
+  "flow-nano-banana-2",
+  "flow-nano-banana-pro",
+  "NARWHAL",
+  "GEM_PIX_2",
+  "HARBOR_SEAL",
+] as const;
+
 const imageRequest = z.object({
-  model: z
-    .enum([
-      "flow-nano-banana-2",
-      "flow-nano-banana-pro",
-      "NARWHAL",
-      "GEM_PIX_2",
-      "HARBOR_SEAL",
-    ])
-    .default("flow-nano-banana-2"),
+  model: z.enum(FLOW_IMAGE_MODELS).default("flow-nano-banana-2"),
   prompt: z.string().min(1).max(20_000),
   size: z.string().default("1024x1024"),
   n: z.number().int().min(1).max(4).default(1),
   response_format: z.enum(["b64_json", "url"]).default("b64_json"),
+});
+
+const editImageBody = z.object({
+  model: z.enum(FLOW_IMAGE_MODELS).default("flow-nano-banana-2"),
+  prompt: z.string().min(1).max(20_000),
+  size: z.string().default("1024x1024"),
+  n: z.number().int().min(1).max(4).default(1),
+  response_format: z.enum(["b64_json", "url"]).default("b64_json"),
+  images: z
+    .array(
+      z.object({
+        b64_json: z.string().min(1),
+        mime_type: z.string().min(3).max(100).default("image/png"),
+      }),
+    )
+    .min(1)
+    .max(8),
 });
 
 export function registerImageRoutes(
@@ -33,27 +50,70 @@ export function registerImageRoutes(
     browsers: BrowserWorkerPool;
   },
 ) {
-  // Chạy generate ảnh với account đã được acquire. Không xử lý error mapping.
-  async function doGenerate(accountId: string, body: z.infer<typeof imageRequest>) {
+  async function withAccountSession<T>(
+    accountId: string,
+    run: (ctx: {
+      page: Awaited<ReturnType<BrowserWorkerPool["forAccount"]>>["page"];
+      accessToken: string;
+      projectId: string;
+      siteKey: string;
+    }) => Promise<T>,
+  ): Promise<T> {
     const account = deps.accounts.get(accountId);
     if (!account?.projectId || !(account.siteKey || deps.config.recaptchaSiteKey)) {
       throw new Error("FLOW_REAUTH_REQUIRED");
     }
     const browser = await deps.browsers.forAccount(account.id);
     const session = await readSession(browser.page);
-    const result = await generateFlowImages({
+    const result = await run({
       page: browser.page,
       accessToken: session.accessToken,
       projectId: account.projectId,
       siteKey: account.siteKey || deps.config.recaptchaSiteKey!,
-      action: deps.config.recaptchaAction,
-      prompt: body.prompt,
-      model: body.model,
-      size: body.size,
-      n: body.n,
     });
     await browser.persist().catch(() => undefined);
     return result;
+  }
+
+  // Chạy generate ảnh với account đã được acquire. Không xử lý error mapping.
+  async function doGenerate(accountId: string, body: z.infer<typeof imageRequest>) {
+    return withAccountSession(accountId, (ctx) =>
+      generateFlowImages({
+        page: ctx.page,
+        accessToken: ctx.accessToken,
+        projectId: ctx.projectId,
+        siteKey: ctx.siteKey,
+        action: deps.config.recaptchaAction,
+        prompt: body.prompt,
+        model: body.model,
+        size: body.size,
+        n: body.n,
+      }),
+    );
+  }
+
+  async function doEdit(accountId: string, body: z.infer<typeof editImageBody>) {
+    return withAccountSession(accountId, (ctx) =>
+      editFlowImages({
+        page: ctx.page,
+        accessToken: ctx.accessToken,
+        projectId: ctx.projectId,
+        siteKey: ctx.siteKey,
+        action: deps.config.recaptchaAction,
+        prompt: body.prompt,
+        model: body.model,
+        size: body.size,
+        n: body.n,
+        images: body.images.map((img, index) => {
+          const mime = (img.mime_type || "image/png").split(";")[0].trim() || "image/png";
+          return {
+            data: Buffer.from(img.b64_json, "base64"),
+            mimeType: mime,
+            fileName: `edit-${index + 1}.${mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png"}`,
+          };
+        }),
+      }),
+    );
   }
 
   function errorStatus(message: string): number {
@@ -76,20 +136,15 @@ export function registerImageRoutes(
     }
   }
 
-  app.post("/v1/images/generations", async (request, reply) => {
-    requireApiKey(request, deps.config.apiKey);
-    const body = imageRequest.parse(request.body ?? {});
-    if (body.response_format === "url") {
-      return reply
-        .code(400)
-        .send({ error: { message: "only b64_json is supported", code: "FLOW_INVALID_REQUEST" } });
-    }
-
+  async function runWithLease(
+    reply: { code: (status: number) => { send: (body: unknown) => unknown } },
+    work: (accountId: string) => Promise<{ images: Array<{ b64_json?: string }> }>,
+  ) {
     let leaseAccountId: string | null = null;
     try {
       const lease = deps.scheduler.acquire("image");
       leaseAccountId = lease.accountId;
-      const result = await doGenerate(leaseAccountId, body);
+      const result = await work(leaseAccountId);
       deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
       return {
         created: Math.floor(Date.now() / 1000),
@@ -104,11 +159,10 @@ export function registerImageRoutes(
         deps.scheduler.release(leaseAccountId);
         leaseAccountId = null;
 
-        // Thử tối đa 1 account fallback.
         try {
           const retryLease = deps.scheduler.acquire("image");
           leaseAccountId = retryLease.accountId;
-          const result = await doGenerate(leaseAccountId, body);
+          const result = await work(leaseAccountId);
           deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
           return {
             created: Math.floor(Date.now() / 1000),
@@ -119,9 +173,7 @@ export function registerImageRoutes(
             retryError instanceof Error ? retryError.message : "FLOW_UPSTREAM_REJECTED";
           if (leaseAccountId) recordError(leaseAccountId, retryMessage);
           const code = retryMessage.split(" ")[0];
-          return reply
-            .code(errorStatus(retryMessage))
-            .send({ error: { message: code, code } });
+          return reply.code(errorStatus(retryMessage)).send({ error: { message: code, code } });
         }
       }
 
@@ -131,5 +183,35 @@ export function registerImageRoutes(
     } finally {
       if (leaseAccountId) deps.scheduler.release(leaseAccountId);
     }
+  }
+
+  app.post("/v1/images/generations", async (request, reply) => {
+    requireApiKey(request, deps.config.apiKey);
+    const body = imageRequest.parse(request.body ?? {});
+    if (body.response_format === "url") {
+      return reply
+        .code(400)
+        .send({ error: { message: "only b64_json is supported", code: "FLOW_INVALID_REQUEST" } });
+    }
+    return runWithLease(reply, (accountId) => doGenerate(accountId, body));
+  });
+
+  app.post("/v1/images/edits", async (request, reply) => {
+    requireApiKey(request, deps.config.apiKey);
+    const body = editImageBody.parse(request.body ?? {});
+    if (body.response_format === "url") {
+      return reply
+        .code(400)
+        .send({ error: { message: "only b64_json is supported", code: "FLOW_INVALID_REQUEST" } });
+    }
+    // Reject empty decoded buffers early
+    for (const img of body.images) {
+      if (!Buffer.from(img.b64_json, "base64").length) {
+        return reply
+          .code(400)
+          .send({ error: { message: "empty image", code: "FLOW_INVALID_REQUEST" } });
+      }
+    }
+    return runWithLease(reply, (accountId) => doEdit(accountId, body));
   });
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Page } from "playwright-core";
 import { createRecaptchaToken } from "./token-factory.js";
 
@@ -5,9 +6,23 @@ import { createRecaptchaToken } from "./token-factory.js";
 export const FLOW_IMAGE_ENDPOINT =
   "https://aisandbox-pa.googleapis.com/v1/projects/{projectId}/flowMedia:batchGenerateImages";
 
+// Verified 2026-07-18 image-edit probe: upload then reference by name.
+export const FLOW_UPLOAD_IMAGE_ENDPOINT = "https://aisandbox-pa.googleapis.com/v1/flow/uploadImage";
+
 export type ImageSize = "1024x1024" | "1024x1792" | "1792x1024" | string;
 
 export type FlowImageModelName = "NARWHAL" | "GEM_PIX_2" | "HARBOR_SEAL";
+
+export type FlowImageInput = {
+  imageInputType: "IMAGE_INPUT_TYPE_REFERENCE";
+  name: string;
+};
+
+export type FlowImageUpload = {
+  data: Buffer;
+  mimeType: string;
+  fileName?: string;
+};
 
 export function mapImageModel(model: string): FlowImageModelName {
   const m = model.trim().toLowerCase();
@@ -67,6 +82,8 @@ export type GenerateImageInput = {
   action?: string;
   accessToken: string;
   page: Page;
+  /** When set, request becomes image edit / reference generation. */
+  imageInputs?: FlowImageInput[];
 };
 
 export type GeneratedImage = {
@@ -123,6 +140,115 @@ function extractFifeUrls(raw: string): string[] {
   return [...urls];
 }
 
+/** Extract media name/id from uploadImage response without assuming a single schema. */
+export function extractUploadedImageName(raw: string): string | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const candidates: string[] = [];
+    const visit = (node: unknown, parentKey = "") => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const item of node) visit(item, parentKey);
+        return;
+      }
+      const obj = node as Record<string, unknown>;
+      for (const [k, v] of Object.entries(obj)) {
+        if (typeof v === "string" && v.length >= 8 && v.length <= 200) {
+          if (
+            /^(name|mediaId|media_id|imageId|image_id|id|mediaGenerationId)$/i.test(k) ||
+            (/name/i.test(k) && /media|image/i.test(parentKey + k))
+          ) {
+            // Prefer UUID-looking or media path values; still accept plain ids.
+            if (!/ya29\.|Bearer|http/i.test(v)) candidates.push(v);
+          }
+        } else {
+          visit(v, k);
+        }
+      }
+    };
+    visit(parsed);
+    // Prefer UUID-shaped names first (matches probe observation).
+    const uuid = candidates.find((c) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c),
+    );
+    if (uuid) return uuid;
+    return candidates[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function extensionForMime(mimeType: string): string {
+  const m = mimeType.toLowerCase();
+  if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+  if (m.includes("webp")) return "webp";
+  if (m.includes("gif")) return "gif";
+  return "png";
+}
+
+export async function uploadFlowImage(input: {
+  page: Page;
+  accessToken: string;
+  projectId: string;
+  image: FlowImageUpload;
+}): Promise<string> {
+  const mimeType = (input.image.mimeType || "image/png").split(";")[0].trim() || "image/png";
+  const fileName =
+    input.image.fileName?.trim() ||
+    `${randomUUID()}.${extensionForMime(mimeType)}`;
+  const imageBytes = input.image.data.toString("base64");
+  if (!imageBytes) throw new Error("FLOW_INVALID_REQUEST");
+
+  const result = await input.page.evaluate(
+    async ([endpointUrl, bearer, project, bytes, mime, name]) => {
+      const body = {
+        clientContext: {
+          projectId: project,
+          tool: "PINHOLE",
+        },
+        imageBytes: bytes,
+        mimeType: mime,
+        fileName: name,
+        isUserUploaded: true,
+        isHidden: false,
+      };
+      const res = await fetch(endpointUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const raw = await res.text();
+      return { status: res.status, raw };
+    },
+    [
+      FLOW_UPLOAD_IMAGE_ENDPOINT,
+      input.accessToken,
+      input.projectId,
+      imageBytes,
+      mimeType,
+      fileName,
+    ] as const,
+  );
+
+  if (result.status === 401) throw new Error("FLOW_REAUTH_REQUIRED");
+  if (result.status === 403) {
+    if (/recaptcha|captcha|UNUSUAL_ACTIVITY|PERMISSION_DENIED/i.test(result.raw)) {
+      throw new Error("FLOW_RECAPTCHA_FAILED");
+    }
+    throw new Error("FLOW_REAUTH_REQUIRED");
+  }
+  if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
+  if (result.status !== 200) {
+    throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}`);
+  }
+  const name = extractUploadedImageName(result.raw);
+  if (!name) throw new Error("FLOW_UPSTREAM_REJECTED");
+  return name;
+}
+
 export async function generateFlowImages(input: GenerateImageInput): Promise<{
   status: number;
   images: GeneratedImage[];
@@ -133,6 +259,7 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
   const imageModelName = mapImageModel(input.model ?? "flow-nano-banana-2");
   const imageAspectRatio = mapAspectRatio(input.size ?? "1024x1024");
   const action = input.action ?? "IMAGE_GENERATION";
+  const imageInputs = input.imageInputs ?? [];
 
   let recaptchaFailures = 0;
   let lastStatus = 0;
@@ -150,7 +277,7 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
 
     const endpoint = FLOW_IMAGE_ENDPOINT.replace("{projectId}", input.projectId);
     const result = await input.page.evaluate(
-      async ([endpointUrl, bearer, tokenValue, project, model, aspect, text, count]) => {
+      async ([endpointUrl, bearer, tokenValue, project, model, aspect, text, count, refs]) => {
         const sessionId = crypto.randomUUID?.() || `s-${Date.now()}`;
         const batchId = crypto.randomUUID?.() || `b-${Date.now()}`;
         const clientContext = {
@@ -168,7 +295,7 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
           imageAspectRatio: aspect,
           structuredPrompt: { parts: [{ text }] },
           seed: Math.floor(Math.random() * 2_000_000_000),
-          imageInputs: [] as unknown[],
+          imageInputs: refs,
         }));
         const body = {
           clientContext,
@@ -196,6 +323,7 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
         imageAspectRatio,
         prompt,
         n,
+        imageInputs,
       ] as const,
     );
 
@@ -247,4 +375,47 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
   throw new Error(
     lastStatus ? `FLOW_UPSTREAM_REJECTED status=${lastStatus}` : "FLOW_UPSTREAM_REJECTED",
   );
+}
+
+export async function editFlowImages(input: {
+  prompt: string;
+  model?: string;
+  size?: ImageSize;
+  n?: number;
+  projectId: string;
+  siteKey: string;
+  action?: string;
+  accessToken: string;
+  page: Page;
+  images: FlowImageUpload[];
+}): Promise<{ status: number; images: GeneratedImage[] }> {
+  if (!input.images?.length) throw new Error("FLOW_INVALID_REQUEST");
+  if (input.images.length > 8) throw new Error("FLOW_INVALID_REQUEST");
+
+  const imageInputs: FlowImageInput[] = [];
+  for (const image of input.images) {
+    const name = await uploadFlowImage({
+      page: input.page,
+      accessToken: input.accessToken,
+      projectId: input.projectId,
+      image,
+    });
+    imageInputs.push({
+      imageInputType: "IMAGE_INPUT_TYPE_REFERENCE",
+      name,
+    });
+  }
+
+  return generateFlowImages({
+    prompt: input.prompt,
+    model: input.model,
+    size: input.size,
+    n: input.n ?? 1,
+    projectId: input.projectId,
+    siteKey: input.siteKey,
+    action: input.action,
+    accessToken: input.accessToken,
+    page: input.page,
+    imageInputs,
+  });
 }

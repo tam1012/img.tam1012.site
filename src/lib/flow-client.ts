@@ -21,6 +21,30 @@ function aspectToSize(aspectRatio?: string, width?: number, height?: number): st
   return "1024x1024";
 }
 
+async function parseFlowImageResponse(res: Response): Promise<FlowImageResult[]> {
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const err = (await res.json()) as { error?: { message?: string; code?: string } };
+      detail = err.error?.message || err.error?.code || "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(
+      detail
+        ? `FLOW_UPSTREAM_HTTP_${res.status}: ${detail.slice(0, 160)}`
+        : `FLOW_UPSTREAM_HTTP_${res.status}`,
+    );
+  }
+  const json = (await res.json()) as { data?: Array<{ b64_json?: string }> };
+  const images = (json.data ?? [])
+    .map((item) => item.b64_json)
+    .filter((v): v is string => typeof v === "string" && v.length > 0)
+    .map((b64_json) => ({ b64_json }));
+  if (images.length === 0) throw new Error("FLOW_UPSTREAM_EMPTY");
+  return images;
+}
+
 export async function generateFlowImageViaRoute(input: {
   prompt: string;
   model?: string;
@@ -54,27 +78,52 @@ export async function generateFlowImageViaRoute(input: {
       response_format: "b64_json",
     }),
   });
-  if (!res.ok) {
-    let detail = "";
-    try {
-      const err = (await res.json()) as { error?: { message?: string; code?: string } };
-      detail = err.error?.message || err.error?.code || "";
-    } catch {
-      detail = "";
-    }
-    throw new Error(
-      detail
-        ? `FLOW_UPSTREAM_HTTP_${res.status}: ${detail.slice(0, 160)}`
-        : `FLOW_UPSTREAM_HTTP_${res.status}`,
-    );
+  return parseFlowImageResponse(res);
+}
+
+/** Edit / image-to-image via Flow bridge. Supports Nano Banana 2 + Pro. */
+export async function editFlowImageViaRoute(input: {
+  prompt: string;
+  model?: string;
+  size?: string;
+  aspectRatio?: string;
+  width?: number;
+  height?: number;
+  n?: number;
+  images: Array<{ buffer: Buffer; mimeType?: string }>;
+  env?: Record<string, string | undefined>;
+  fetchImpl?: typeof fetch;
+}): Promise<FlowImageResult[]> {
+  const env = input.env ?? process.env;
+  const route = activeRoute(resolveFlowImageRoute(env));
+  if (!route) {
+    throw new Error("FLOW_DISABLED");
   }
-  const json = (await res.json()) as { data?: Array<{ b64_json?: string }> };
-  const images = (json.data ?? [])
-    .map((item) => item.b64_json)
-    .filter((v): v is string => typeof v === "string" && v.length > 0)
-    .map((b64_json) => ({ b64_json }));
-  if (images.length === 0) throw new Error("FLOW_UPSTREAM_EMPTY");
-  return images;
+  if (!input.images?.length) {
+    throw new Error("FLOW_INVALID_REQUEST");
+  }
+  const model = (input.model || route.model || "flow-nano-banana-2").trim();
+  const size = input.size || aspectToSize(input.aspectRatio, input.width, input.height);
+  const fetchFn = input.fetchImpl ?? fetch;
+  const res = await fetchFn(`${route.baseUrl}/images/edits`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${route.apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      prompt: input.prompt,
+      size,
+      n: input.n ?? 1,
+      response_format: "b64_json",
+      images: input.images.map((img) => ({
+        b64_json: img.buffer.toString("base64"),
+        mime_type: img.mimeType || "image/png",
+      })),
+    }),
+  });
+  return parseFlowImageResponse(res);
 }
 
 export async function createFlowVideoViaRoute(input: {

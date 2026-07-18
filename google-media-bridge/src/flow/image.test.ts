@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapAspectRatio, mapImageModel } from "./image.js";
+import { extractUploadedImageName, mapAspectRatio, mapImageModel } from "./image.js";
 
 describe("image adapter mapping", () => {
   it("maps client model and sizes", () => {
@@ -14,5 +14,19 @@ describe("image adapter mapping", () => {
     expect(mapAspectRatio("16:9")).toBe("IMAGE_ASPECT_RATIO_LANDSCAPE");
     expect(mapAspectRatio("1024x1792")).toBe("IMAGE_ASPECT_RATIO_PORTRAIT");
     expect(mapAspectRatio("9:16")).toBe("IMAGE_ASPECT_RATIO_PORTRAIT");
+  });
+
+  it("extracts upload media name from common response shapes", () => {
+    expect(
+      extractUploadedImageName(
+        JSON.stringify({ name: "12937080-f270-44c1-8cc6-a7e147be1ce0", mimeType: "image/jpeg" }),
+      ),
+    ).toBe("12937080-f270-44c1-8cc6-a7e147be1ce0");
+    expect(
+      extractUploadedImageName(
+        JSON.stringify({ media: { mediaId: "abc-media-id-001" }, ok: true }),
+      ),
+    ).toBe("abc-media-id-001");
+    expect(extractUploadedImageName("{not-json")).toBeNull();
   });
 });

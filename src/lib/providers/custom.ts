@@ -4,7 +4,7 @@ import OpenAI, { toFile } from "openai";
 import { GoogleGenAI } from "@google/genai";
 import type { ProviderConfig } from "../db";
 import { XAI_BASE_URL, runWithXaiAccount, xaiAuthPool } from "../xai-auth-pool";
-import { generateFlowImageViaRoute } from "../flow-client";
+import { editFlowImageViaRoute, generateFlowImageViaRoute } from "../flow-client";
 
 export interface GenerateParams {
   prompt: string;
@@ -177,7 +177,7 @@ export async function editImage(config: ProviderConfig, params: EditParams): Pro
     throw new Error("Provider ChatGPT Web Bridge chưa hỗ trợ chỉnh sửa ảnh.");
   }
   if (config.api_type === "flow") {
-    throw new Error("Provider Google Flow chưa hỗ trợ chỉnh sửa ảnh trong phiên bản này.");
+    return flowEdit(config, params);
   }
   if (config.api_type === "gemini") {
     return geminiEdit(config, params);
@@ -205,6 +205,31 @@ async function flowGenerate(config: ProviderConfig, params: GenerateParams): Pro
     mimeType: "image/png",
     model: config.model,
   }));
+}
+
+async function flowEdit(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
+  if (!params.images?.length) {
+    throw new Error("Cần ít nhất 1 ảnh để chỉnh sửa với Google Flow.");
+  }
+  const images = await editFlowImageViaRoute({
+    prompt: params.prompt,
+    model: config.model,
+    aspectRatio: params.aspectRatio,
+    width: params.width,
+    height: params.height,
+    n: 1,
+    images: params.images.map((img) => ({
+      buffer: img.buffer,
+      mimeType: img.mimeType || "image/png",
+    })),
+  });
+  const first = images[0];
+  if (!first?.b64_json) throw new Error("FLOW_UPSTREAM_EMPTY");
+  return {
+    data: Buffer.from(first.b64_json, "base64"),
+    mimeType: "image/png",
+    model: config.model,
+  };
 }
 
 // ── ChatGPT Web Bridge ────────────────────────────────────

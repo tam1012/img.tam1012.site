@@ -56,7 +56,8 @@ function isOpenAICompatModelFamily(model: string, family: "gemini" | "imagen") {
 
 export function maxEditImagesForProvider(provider: ProviderConfig) {
   if (provider.api_type === "chatgpt_bridge") return 0;
-  if (provider.api_type === "flow") return 0;
+  // Flow Nano Banana 2 / Pro: upload multiple references then generate.
+  if (provider.api_type === "flow") return 8;
   if (provider.api_type !== "openai") return 8;
   if (isOpenAICompatModelFamily(provider.model, "gemini")) return 8;
   if (/gpt-image/i.test(provider.model)) return 8;

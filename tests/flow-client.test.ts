@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createFlowVideoViaRoute, generateFlowImageViaRoute } from "@/lib/flow-client";
+import {
+  createFlowVideoViaRoute,
+  editFlowImageViaRoute,
+  generateFlowImageViaRoute,
+} from "@/lib/flow-client";
 
 describe("flow client", () => {
   it("calls image generations with resolved route and provider model", async () => {
@@ -27,6 +31,34 @@ describe("flow client", () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("flow-nano-banana-pro");
     expect(body.size).toBe("1792x1024");
+  });
+
+  it("calls image edits for Nano Banana 2 and Pro with uploaded references", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: "bbb" }] }),
+    }));
+    const images = await editFlowImageViaRoute({
+      prompt: "make blue",
+      model: "flow-nano-banana-2",
+      aspectRatio: "1:1",
+      images: [{ buffer: Buffer.from("fake-image"), mimeType: "image/png" }],
+      env: {
+        FLOW_IMAGE_ROUTE: "direct",
+        FLOW_BRIDGE_BASE_URL: "http://bridge.local/v1",
+        FLOW_BRIDGE_API_KEY: "k".repeat(32),
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(images).toEqual([{ b64_json: "bbb" }]);
+    const firstCall = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = firstCall;
+    expect(url).toBe("http://bridge.local/v1/images/edits");
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe("flow-nano-banana-2");
+    expect(body.images).toHaveLength(1);
+    expect(body.images[0].mime_type).toBe("image/png");
+    expect(typeof body.images[0].b64_json).toBe("string");
   });
 
   it("fails closed when disabled", async () => {
