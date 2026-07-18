@@ -34,19 +34,18 @@ async function freeLoopbackPort(): Promise<number> {
   });
 }
 
-function spawnChrome(chromePath: string, port: number, userDataDir: string): ChildProcess {
-  return spawn(
-    chromePath,
-    [
-      "--remote-debugging-address=127.0.0.1",
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${userDataDir}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-      FLOW_URL,
-    ],
-    { stdio: "ignore", detached: false },
-  );
+function spawnChrome(chromePath: string, port: number, userDataDir: string, proxyUrl?: string): ChildProcess {
+  const args = [
+    "--remote-debugging-address=127.0.0.1",
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${userDataDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+  ];
+  // Dùng proxy dân cư sticky khi enroll để IP khớp với runtime trên VPS.
+  if (proxyUrl) args.push(`--proxy-server=${proxyUrl}`);
+  args.push(FLOW_URL);
+  return spawn(chromePath, args, { stdio: "ignore", detached: false });
 }
 
 // Runs inside the page. The access token never leaves the browser: scope is
@@ -147,13 +146,15 @@ export async function captureFlowSession(options: {
   const chromePath = options.chromePath ?? findChromePath();
   if (!chromePath) throw new Error("Could not locate Chrome. Set FLOW_CHROME_PATH.");
   const loginTimeoutMs = options.loginTimeoutMs ?? Number(process.env.FLOW_LOGIN_TIMEOUT_MS ?? 15 * 60_000);
+  const proxyUrl = process.env.FLOW_PROXY_URL || undefined;
+  if (proxyUrl) emit(`Sử dụng proxy: ${proxyUrl.replace(/\/\/[^@]+@/, "//***@")}`);
   const userDataDir = await mkdtemp(join(tmpdir(), "flow-enroll-"));
   const port = await freeLoopbackPort();
   let chrome: ChildProcess | undefined;
   let browser: Browser | undefined;
   try {
     emit("Đang mở Chrome tại Google Flow. Hãy đăng nhập trong cửa sổ vừa mở.");
-    chrome = spawnChrome(chromePath, port, userDataDir);
+    chrome = spawnChrome(chromePath, port, userDataDir, proxyUrl);
 
     let connected = false;
     const connectDeadline = Date.now() + 30_000;

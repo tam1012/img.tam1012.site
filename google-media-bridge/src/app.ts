@@ -11,6 +11,7 @@ import { registerImageRoutes } from "./http/image-routes.js";
 import { registerVideoRoutes } from "./http/video-routes.js";
 import { createJobPoller } from "./jobs/poller.js";
 import { createJobRepository } from "./jobs/repository.js";
+import { createKeepalive } from "./accounts/keepalive.js";
 import { openDatabase, type BridgeDatabase } from "./store/database.js";
 
 export type BridgeApp = {
@@ -29,6 +30,7 @@ export async function buildApp(config: BridgeConfig): Promise<BridgeApp> {
     chromiumPath: config.chromiumPath,
     vaultKey: config.vaultKey,
     accounts,
+    proxyUrl: config.proxyUrl,
   });
 
   const app = Fastify({
@@ -72,10 +74,19 @@ export async function buildApp(config: BridgeConfig): Promise<BridgeApp> {
   });
   poller.start();
 
+  const keepalive = createKeepalive({
+    accounts,
+    browsers,
+    intervalMs: config.keepaliveIntervalMs,
+    log: (msg) => app.log.info(msg),
+  });
+  keepalive.start();
+
   return {
     app,
     db,
     async close() {
+      await keepalive.stop();
       await poller.stop();
       await browsers.close();
       await app.close();

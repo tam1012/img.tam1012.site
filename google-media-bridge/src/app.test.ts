@@ -29,6 +29,7 @@ function testConfig(dir: string, privateKeyPath: string): BridgeConfig {
     maxAccountConcurrency: 1,
     recaptchaSiteKey: "site-key",
     recaptchaAction: "IMAGE_GENERATION",
+    keepaliveIntervalMs: 30 * 60_000,
   };
 }
 

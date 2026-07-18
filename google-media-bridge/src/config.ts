@@ -18,6 +18,11 @@ const schema = z.object({
   FLOW_MAX_ACCOUNT_CONCURRENCY: z.coerce.number().int().min(1).max(2).default(1),
   FLOW_RECAPTCHA_SITE_KEY: z.string().min(1).optional(),
   FLOW_RECAPTCHA_ACTION: z.string().default("IMAGE_GENERATION"),
+  // Proxy dân cư sticky VN cho Chromium (optional — khi không set thì egress VPS).
+  // Định dạng: http://user:pass@host:port
+  FLOW_PROXY_URL: z.string().min(1).optional(),
+  // Khoảng cách keep-alive (ms), mặc định 30 phút.
+  FLOW_KEEPALIVE_INTERVAL_MS: z.coerce.number().int().min(60_000).default(30 * 60_000),
 });
 
 export type BridgeConfig = {
@@ -32,6 +37,8 @@ export type BridgeConfig = {
   maxAccountConcurrency: number;
   recaptchaSiteKey?: string;
   recaptchaAction: string;
+  proxyUrl?: string;
+  keepaliveIntervalMs: number;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): BridgeConfig {
@@ -51,5 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | Record<string, string | unde
     maxAccountConcurrency: parsed.FLOW_MAX_ACCOUNT_CONCURRENCY,
     recaptchaSiteKey: parsed.FLOW_RECAPTCHA_SITE_KEY,
     recaptchaAction: parsed.FLOW_RECAPTCHA_ACTION,
+    proxyUrl: parsed.FLOW_PROXY_URL,
+    keepaliveIntervalMs: parsed.FLOW_KEEPALIVE_INTERVAL_MS,
   };
 }

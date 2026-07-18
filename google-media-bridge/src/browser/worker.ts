@@ -19,6 +19,7 @@ type PoolOptions = {
   chromiumPath: string;
   vaultKey: Buffer;
   accounts: AccountRepository;
+  proxyUrl?: string;
 };
 
 type Slot = {
@@ -26,9 +27,27 @@ type Slot = {
   page: Page;
 };
 
+type ProxySettings = {
+  server: string;
+  username?: string;
+  password?: string;
+};
+
+function parseProxyUrl(raw?: string): ProxySettings | undefined {
+  if (!raw) return undefined;
+  // Định dạng: http://user:pass@host:port
+  const m = raw.match(/^(https?):\/\/(?:([^:]*):([^@]*)@)?(.+)$/);
+  if (!m) return undefined;
+  const [, scheme, user, pass, hostPort] = m;
+  const server = `${scheme}://${hostPort}`;
+  if (user && pass) return { server, username: user, password: pass };
+  return { server };
+}
+
 export function createBrowserWorkerPool(options: PoolOptions): BrowserWorkerPool {
   let browser: Browser | undefined;
   const slots = new Map<string, Slot>();
+  const proxy = parseProxyUrl(options.proxyUrl);
 
   async function ensureBrowser(): Promise<Browser> {
     if (!browser) {
@@ -78,6 +97,7 @@ export function createBrowserWorkerPool(options: PoolOptions): BrowserWorkerPool
           cookies: storageState.cookies as never,
           origins: storageState.origins as never,
         },
+        ...(proxy ? { proxy } : {}),
       });
       const page = await context.newPage();
       slots.set(accountId, { context, page });

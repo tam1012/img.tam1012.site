@@ -158,6 +158,18 @@ export function createAccountRepository(db: BridgeDatabase) {
       for (const row of rows) out[row.status] = row.c;
       return out;
     },
+
+    // Trả về danh sách account healthy chưa có lease, dùng cho keep-alive.
+    listHealthyIdle(): AccountRecord[] {
+      const rows = db
+        .prepare(
+          `SELECT * FROM accounts
+           WHERE status = 'healthy' AND active_leases = 0
+           ORDER BY alias ASC`,
+        )
+        .all() as AccountRow[];
+      return rows.map(mapAccount);
+    },
   };
 }
 
