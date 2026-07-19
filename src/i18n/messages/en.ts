@@ -21,6 +21,7 @@ const en: Messages = {
     closeDialog: "Close dialog",
     openInNewTab: "Open image in new tab",
     contactAdmin: "Contact admin: Telegram",
+    termsOfService: "Terms of Service",
     remainingImages: "{count} images left",
     remainingVideos: "{count} videos left",
     lowBalanceHint: "{count} images left. Contact admin to top up when needed.",

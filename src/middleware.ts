@@ -12,6 +12,7 @@ export function middleware(req: NextRequest) {
   const isPublic =
     pathname === "/" ||
     pathname === "/login" ||
+    pathname === "/terms" ||
     pathname === "/api/auth" ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/register" ||

@@ -19,6 +19,7 @@ const vi = {
     closeDialog: "Đóng hộp thoại",
     openInNewTab: "Mở ảnh trong tab mới",
     contactAdmin: "Liên hệ admin: Telegram",
+    termsOfService: "Điều khoản dịch vụ",
     remainingImages: "Còn {count} ảnh",
     remainingVideos: "Còn {count} video",
     lowBalanceHint: "Còn {count} ảnh. Liên hệ admin để nạp thêm khi cần.",
