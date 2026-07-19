@@ -59,16 +59,11 @@ export default function InboxBell({ visible }: { visible: boolean }) {
 
   useEffect(() => {
     if (!open) return;
-    function handlePointerDown(event: PointerEvent) {
-      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
-    }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") setOpen(false);
     }
-    window.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
@@ -124,7 +119,16 @@ export default function InboxBell({ visible }: { visible: boolean }) {
           )}
         </button>
         {open && !active && (
-          <div className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40">
+          <>
+            {/* overlay bắt click-ngoài để đóng (trên Header z-50, dưới Modal z-100) */}
+            <button
+              type="button"
+              aria-hidden="true"
+              tabIndex={-1}
+              onClick={() => setOpen(false)}
+              className="fixed inset-0 z-[60] cursor-default"
+            />
+            <div className="absolute right-0 top-full z-[65] mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40">
             <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2.5">
               <span className="text-sm font-semibold text-zinc-100">{t("inbox.title")}</span>
               {unread > 0 && (
@@ -163,6 +167,7 @@ export default function InboxBell({ visible }: { visible: boolean }) {
                 )}
               </div>
             </div>
+          </>
         )}
       </div>
 
