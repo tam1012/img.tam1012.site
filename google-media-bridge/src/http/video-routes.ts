@@ -51,6 +51,66 @@ export function registerVideoRoutes(
     jobs: JobRepository;
   },
 ) {
+  // --- Helpers (same pattern as image-routes.ts) ---
+
+  function errorStatus(message: string): number {
+    if (message.includes("FLOW_POOL_UNAVAILABLE")) return 503;
+    if (message.includes("FLOW_INVALID_REQUEST")) return 400;
+    if (
+      message.includes("FLOW_RECAPTCHA_FAILED") ||
+      message.includes("FLOW_RECAPTCHA_UNAVAILABLE")
+    ) {
+      return 502;
+    }
+    return 502;
+  }
+
+  function isRecaptchaError(message: string): boolean {
+    return (
+      message.includes("FLOW_RECAPTCHA_FAILED") ||
+      message.includes("FLOW_RECAPTCHA_UNAVAILABLE")
+    );
+  }
+
+  function isRetryableAccountError(message: string): boolean {
+    return message.includes("FLOW_REAUTH_REQUIRED") || isRecaptchaError(message);
+  }
+
+  function recordError(accountId: string, message: string): void {
+    if (message.includes("FLOW_REAUTH_REQUIRED")) {
+      deps.scheduler.applyHttpResult(accountId, 401, 0);
+    } else if (message.includes("FLOW_QUOTA_EXCEEDED")) {
+      deps.scheduler.applyHttpResult(accountId, 429, 0);
+    } else if (message.includes("FLOW_RECAPTCHA_UNAVAILABLE")) {
+      deps.scheduler.applyCooldown(accountId, 60_000, "recaptcha_unavailable");
+    } else if (message.includes("FLOW_RECAPTCHA_FAILED")) {
+      deps.scheduler.applyCooldown(accountId, 3 * 60_000, "recaptcha");
+    }
+  }
+
+  async function createVideoOnAccount(
+    accountId: string,
+    video: CreateVideoInput,
+    opts?: { proxy?: boolean },
+  ) {
+    const account = deps.accounts.get(accountId);
+    if (!account?.projectId || !(account.siteKey || deps.config.recaptchaSiteKey)) {
+      throw new Error("FLOW_REAUTH_REQUIRED");
+    }
+    const browser = await deps.browsers.forAccount(account.id, { proxy: opts?.proxy !== false });
+    const session = await readSession(browser.page);
+    const upstream = await createFlowVideoJob({
+      page: browser.page,
+      accessToken: session.accessToken,
+      projectId: account.projectId,
+      siteKey: account.siteKey || deps.config.recaptchaSiteKey!,
+      action: "VIDEO_GENERATION",
+      video,
+    });
+    await browser.persist().catch(() => undefined);
+    return { upstream, accountId: account.id };
+  }
+
   async function createVideo(
     request: FastifyRequest,
     reply: FastifyReply,
@@ -66,61 +126,75 @@ export function registerVideoRoutes(
 
     let leaseAccountId: string | null = null;
     try {
-      const kind = resolveVideoKind(video);
       const lease = deps.scheduler.acquire("video");
       leaseAccountId = lease.accountId;
-      const account = deps.accounts.get(lease.accountId);
-      if (!account?.projectId || !(account.siteKey || deps.config.recaptchaSiteKey)) {
-        throw new Error("FLOW_REAUTH_REQUIRED");
+
+      let result: { upstream: VideoUpstreamState; accountId: string } | undefined;
+      try {
+        result = await createVideoOnAccount(leaseAccountId, video, { proxy: true });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "FLOW_UPSTREAM_REJECTED";
+
+        // Auto-fallback: proxy recaptcha fail → same account direct.
+        if (isRecaptchaError(msg)) {
+          try {
+            result = await createVideoOnAccount(leaseAccountId, video, { proxy: false });
+            deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
+          } catch (directError) {
+            const directMsg =
+              directError instanceof Error ? directError.message : "FLOW_UPSTREAM_REJECTED";
+            recordError(leaseAccountId, directMsg);
+          }
+        }
+
+        // reauth / reCAPTCHA fallback: thử account khác.
+        if (!result && isRetryableAccountError(msg)) {
+          recordError(leaseAccountId, msg);
+          deps.scheduler.release(leaseAccountId);
+          leaseAccountId = null;
+
+          try {
+            const retryLease = deps.scheduler.acquire("video");
+            leaseAccountId = retryLease.accountId;
+            // Try direct first on fallback — proxy already failed on prior account.
+            try {
+              result = await createVideoOnAccount(leaseAccountId, video, { proxy: false });
+            } catch {
+              result = await createVideoOnAccount(leaseAccountId, video, { proxy: true });
+            }
+            deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
+          } catch (retryError) {
+            const retryMsg =
+              retryError instanceof Error ? retryError.message : "FLOW_UPSTREAM_REJECTED";
+            if (leaseAccountId) recordError(leaseAccountId, retryMsg);
+            const code = retryMsg.startsWith("FLOW_") ? retryMsg.split(" ")[0] : "FLOW_UPSTREAM_REJECTED";
+            return reply.code(errorStatus(retryMsg)).send({ error: { message: code, code } });
+          }
+        }
+
+        if (!result) throw error; // re-throw original if nothing worked
       }
-      const browser = await deps.browsers.forAccount(account.id, { proxy: true });
-      const session = await readSession(browser.page);
-      const upstream = await createFlowVideoJob({
-        page: browser.page,
-        accessToken: session.accessToken,
-        projectId: account.projectId,
-        siteKey: account.siteKey || deps.config.recaptchaSiteKey!,
-        // Video always uses VIDEO_GENERATION; do not inherit image action.
-        action: "VIDEO_GENERATION",
-        video,
-      });
-      await browser.persist().catch(() => undefined);
+
+      if (!result) throw new Error("FLOW_UPSTREAM_REJECTED");
+
+      deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
+      const kind = resolveVideoKind(video);
       const jobId = randomUUID();
-      deps.scheduler.bindJob(jobId, account.id);
+      deps.scheduler.bindJob(jobId, result.accountId);
       deps.jobs.create({
         id: jobId,
         idempotencyKey,
         kind,
-        accountId: account.id,
-        encryptedUpstreamState: encryptJSON(deps.config.vaultKey, upstream),
+        accountId: result.accountId,
+        encryptedUpstreamState: encryptJSON(deps.config.vaultKey, result.upstream),
       });
       deps.jobs.update(jobId, { status: "scheduled", progress: 5 });
       return { request_id: jobId };
     } catch (error) {
       const message = error instanceof Error ? error.message : "FLOW_UPSTREAM_REJECTED";
-      if (leaseAccountId) {
-        if (message.includes("FLOW_REAUTH_REQUIRED")) {
-          deps.scheduler.applyHttpResult(leaseAccountId, 401);
-        } else if (message.includes("FLOW_QUOTA_EXCEEDED")) {
-          deps.scheduler.applyHttpResult(leaseAccountId, 429);
-        } else if (message.includes("FLOW_RECAPTCHA_UNAVAILABLE")) {
-          deps.scheduler.applyCooldown(leaseAccountId, 60_000, "recaptcha_unavailable");
-        } else if (message.includes("FLOW_RECAPTCHA_FAILED")) {
-          deps.scheduler.applyCooldown(leaseAccountId, 3 * 60_000, "recaptcha");
-        }
-      }
-      const status = message.includes("FLOW_POOL_UNAVAILABLE")
-        ? 503
-        : message.includes("FLOW_INVALID_REQUEST")
-          ? 400
-          : 502;
+      if (leaseAccountId) recordError(leaseAccountId, message);
       const code = message.startsWith("FLOW_") ? message.split(" ")[0] : "FLOW_UPSTREAM_REJECTED";
-      return reply.code(status).send({
-        error: {
-          message: message.replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 220),
-          code,
-        },
-      });
+      return reply.code(errorStatus(message)).send({ error: { message: code, code } });
     } finally {
       if (leaseAccountId) deps.scheduler.release(leaseAccountId);
     }

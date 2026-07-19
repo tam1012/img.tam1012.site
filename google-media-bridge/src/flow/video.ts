@@ -78,104 +78,132 @@ export async function createFlowVideoJob(input: {
   const kind = resolveVideoKind(input.video);
   const endpoint = mapVideoEndpoint(kind);
   const modelKey = mapVideoModelKey(input.video.modelKey, input.video.duration, kind);
-  // Flow frontend uses grecaptcha action VIDEO_GENERATION for all video creates.
-  const token = await createRecaptchaToken(input.page, {
-    siteKey: input.siteKey,
-    action: input.action && input.action !== "IMAGE_GENERATION" ? input.action : "VIDEO_GENERATION",
-  });
 
-  // Media upload for reference frames is account-bound. Until upload is implemented,
-  // image/start-end modes pass synthetic IDs only for wiring tests and will fail upstream.
-  const firstFrameImageMediaId = input.video.startImage
-    ? `synthetic-start-${randomUUID()}`
-    : undefined;
-  const lastFrameImageMediaId = input.video.endImage
-    ? `synthetic-end-${randomUUID()}`
-    : undefined;
+  let recaptchaFailures = 0;
+  let lastStatus = 0;
+  let lastRaw = "";
 
-  const sessionId = `;${Date.now()}`;
-  const batchId = randomUUID();
-  // Captured live UI shape (text video):
-  // clientContext: projectId, tool=PINHOLE, userPaygateTier, sessionId, recaptchaContext
-  // mediaGenerationContext: batchId, audioFailurePreference
-  // requests[0]: aspectRatio, textInput.structuredPrompt, videoModelKey, seed, metadata
-  // useV2ModelConfig: true
-  const clientContext: Record<string, unknown> = {
-    projectId: input.projectId,
-    tool: "PINHOLE",
-    userPaygateTier: process.env.FLOW_VIDEO_PAYGATE_TIER || "PAYGATE_TIER_ONE",
-    sessionId,
-    recaptchaContext: {
-      token,
-      applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
-    },
-  };
-
-  const requestItem: Record<string, unknown> = {
-    aspectRatio: mapVideoAspect(input.video.aspectRatio),
-    textInput: {
-      structuredPrompt: { parts: [{ text: input.video.prompt }] },
-    },
-    videoModelKey: modelKey,
-    seed: Math.floor(Math.random() * 100_000),
-    metadata: {},
-  };
-  if (firstFrameImageMediaId) requestItem.firstFrameImageMediaId = firstFrameImageMediaId;
-  if (lastFrameImageMediaId) requestItem.lastFrameImageMediaId = lastFrameImageMediaId;
-
-  const body: Record<string, unknown> = {
-    clientContext,
-    mediaGenerationContext: {
-      batchId,
-      audioFailurePreference: "BLOCK_SILENCED_VIDEOS",
-    },
-    requests: [requestItem],
-    useV2ModelConfig: true,
-  };
-
-  const result = await input.page.evaluate(
-    async ([endpointUrl, bearer, payload]) => {
-      const res = await fetch(endpointUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${bearer}`,
-        },
-        body: JSON.stringify(payload),
-      });
-      const raw = await res.text();
-      return { status: res.status, raw };
-    },
-    [endpoint, input.accessToken, body] as const,
-  );
-
-  // Helpful for live diagnosis (no tokens; body may include opaque error text only).
-  try {
-    const preview = result.raw.replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 240);
-    process.stderr.write(`flow_video_upstream status=${result.status} preview=${preview}\n`);
-  } catch {
-    /* ignore */
-  }
-
-  if (result.status === 401 || result.status === 403) {
-    // Keep distinct from permanent reauth so a bad payload does not kill the pool.
-    throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}`);
-  }
-  if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
-  if (result.status < 200 || result.status >= 300) {
-    let detail = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    // Flow frontend uses grecaptcha action VIDEO_GENERATION for all video creates.
+    let token: string;
     try {
-      const parsed = JSON.parse(result.raw) as { error?: { message?: string } };
-      detail = parsed.error?.message ? ` ${parsed.error.message.slice(0, 120)}` : "";
-    } catch {
-      detail = "";
+      token = await createRecaptchaToken(input.page, {
+        siteKey: input.siteKey,
+        action: input.action && input.action !== "IMAGE_GENERATION" ? input.action : "VIDEO_GENERATION",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      // Script chưa sẵn: không đốt thêm attempt — ném thẳng để route map soft cooldown.
+      if (msg.includes("FLOW_RECAPTCHA_UNAVAILABLE")) throw err;
+      recaptchaFailures += 1;
+      if (recaptchaFailures >= 2) throw new Error("FLOW_RECAPTCHA_FAILED");
+      continue;
     }
-    throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}${detail}`);
-  }
 
-  let operations: string[] = [];
-  let workflows: string[] = [];
-  let rawCreateKeys: string[] = [];
+    // Media upload for reference frames is account-bound. Until upload is implemented,
+    // image/start-end modes pass synthetic IDs only for wiring tests and will fail upstream.
+    const firstFrameImageMediaId = input.video.startImage
+      ? `synthetic-start-${randomUUID()}`
+      : undefined;
+    const lastFrameImageMediaId = input.video.endImage
+      ? `synthetic-end-${randomUUID()}`
+      : undefined;
+
+    const sessionId = `;${Date.now()}`;
+    const batchId = randomUUID();
+    // Captured live UI shape (text video):
+    // clientContext: projectId, tool=PINHOLE, userPaygateTier, sessionId, recaptchaContext
+    // mediaGenerationContext: batchId, audioFailurePreference
+    // requests[0]: aspectRatio, textInput.structuredPrompt, videoModelKey, seed, metadata
+    // useV2ModelConfig: true
+    const clientContext: Record<string, unknown> = {
+      projectId: input.projectId,
+      tool: "PINHOLE",
+      userPaygateTier: process.env.FLOW_VIDEO_PAYGATE_TIER || "PAYGATE_TIER_ONE",
+      sessionId,
+      recaptchaContext: {
+        token,
+        applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
+      },
+    };
+
+    const requestItem: Record<string, unknown> = {
+      aspectRatio: mapVideoAspect(input.video.aspectRatio),
+      textInput: {
+        structuredPrompt: { parts: [{ text: input.video.prompt }] },
+      },
+      videoModelKey: modelKey,
+      seed: Math.floor(Math.random() * 100_000),
+      metadata: {},
+    };
+    if (firstFrameImageMediaId) requestItem.firstFrameImageMediaId = firstFrameImageMediaId;
+    if (lastFrameImageMediaId) requestItem.lastFrameImageMediaId = lastFrameImageMediaId;
+
+    const body: Record<string, unknown> = {
+      clientContext,
+      mediaGenerationContext: {
+        batchId,
+        audioFailurePreference: "BLOCK_SILENCED_VIDEOS",
+      },
+      requests: [requestItem],
+      useV2ModelConfig: true,
+    };
+
+    const result = await input.page.evaluate(
+      async ([endpointUrl, bearer, payload]) => {
+        const res = await fetch(endpointUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${bearer}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        const raw = await res.text();
+        return { status: res.status, raw };
+      },
+      [endpoint, input.accessToken, body] as const,
+    );
+
+    lastStatus = result.status;
+    lastRaw = result.raw;
+
+    // Helpful for live diagnosis (no tokens; body may include opaque error text only).
+    try {
+      const preview = result.raw.replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 240);
+      process.stderr.write(`flow_video_upstream status=${result.status} preview=${preview}\n`);
+    } catch {
+      /* ignore */
+    }
+
+    // 401: access token thực sự hết hạn — reauth required.
+    if (result.status === 401) {
+      throw new Error("FLOW_REAUTH_REQUIRED");
+    }
+    // 403 cần phân biệt reCAPTCHA (risk score / unusual activity) với permission thật.
+    if (result.status === 403) {
+      if (/recaptcha|captcha|UNUSUAL_ACTIVITY|PERMISSION_DENIED/i.test(result.raw)) {
+        recaptchaFailures += 1;
+        if (attempt === 0) continue;
+        throw new Error("FLOW_RECAPTCHA_FAILED");
+      }
+      throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}`);
+    }
+    if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
+    if (result.status < 200 || result.status >= 300) {
+      let detail = "";
+      try {
+        const parsed = JSON.parse(result.raw) as { error?: { message?: string } };
+        detail = parsed.error?.message ? ` ${parsed.error.message.slice(0, 120)}` : "";
+      } catch {
+        detail = "";
+      }
+      throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}${detail}`);
+    }
+
+    let operations: string[] = [];
+    let workflows: string[] = [];
+    let rawCreateKeys: string[] = [];
   try {
     const parsed = JSON.parse(result.raw) as {
       operations?: Array<{ name?: string; operation?: { name?: string } } | string>;
@@ -247,14 +275,19 @@ export async function createFlowVideoJob(input: {
     /* ignore */
   }
 
-  return {
-    operations,
-    workflows,
-    rawCreateKeys,
-    projectId: input.projectId,
-    modelKey,
-    endpoint,
-  };
+    return {
+      operations,
+      workflows,
+      rawCreateKeys,
+      projectId: input.projectId,
+      modelKey,
+      endpoint,
+    };
+  }
+
+  throw new Error(
+    lastStatus ? `FLOW_UPSTREAM_REJECTED status=${lastStatus}` : "FLOW_RECAPTCHA_FAILED",
+  );
 }
 
 export type PollVideoResult =
