@@ -250,6 +250,8 @@ model RequestLog {
   mediaDeletedAt  DateTime?
   mediaDeletedBy  String?
   mediaDeleteMode RequestDeleteMode?
+  /// Thời điểm request xong (completed/failed). Không đụng khi user xóa media sau này.
+  finishedAt      DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 

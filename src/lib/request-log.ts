@@ -63,6 +63,8 @@ export async function logRequestComplete(
     data: {
       status: "completed",
       errorMessage: null,
+      // Chỉ set lần đầu — retry complete sau xóa media không được “kéo dài” duration.
+      finishedAt: new Date(),
       ...(updates?.model ? { model: updates.model } : {}),
       ...(typeof updates?.costVnd === "number" ? { costVnd: updates.costVnd } : {}),
     },
@@ -83,7 +85,11 @@ export async function logRequestFailed(
   if (!where) return;
   await db.requestLog.updateMany({
     where,
-    data: { status: "failed", errorMessage: errorMessage.slice(0, 1000) },
+    data: {
+      status: "failed",
+      errorMessage: errorMessage.slice(0, 1000),
+      finishedAt: new Date(),
+    },
   });
 }
 
@@ -168,9 +174,15 @@ function userLabel(user: UserPick): string {
   return user.displayName || user.email || user.phone || user.id.slice(0, 8);
 }
 
-function durationMs(status: string, createdAt: Date, updatedAt: Date): number | null {
+/**
+ * Thời gian chạy job = finishedAt − createdAt.
+ * Không dùng updatedAt: user xóa media sau sẽ đụng updatedAt và làm duration phình to.
+ * finishedAt null (log cũ đã xóa media trước khi có cột) → không ước lượng, trả null.
+ */
+function durationMs(status: string, createdAt: Date, finishedAt: Date | null): number | null {
   if (status === "processing") return null;
-  const ms = updatedAt.getTime() - createdAt.getTime();
+  if (!finishedAt) return null;
+  const ms = finishedAt.getTime() - createdAt.getTime();
   return ms >= 0 ? ms : null;
 }
 
@@ -184,7 +196,7 @@ function createdAtRange(from?: Date | null, to?: Date | null) {
 
 /**
  * Nhật ký request tạo/sửa ảnh + tạo video, đọc từ bảng RequestLog bất biến.
- * duration_ms là ước lượng (updatedAt − createdAt); luồng chạy đồng bộ nên xấp xỉ thời gian gọi model.
+ * duration_ms = finishedAt − createdAt (thời gian job thật, không dính lúc user xóa media).
  * Dòng log KHÔNG mất khi media bị xóa; media đã xóa mang cờ media_deleted_*.
  * Bộ lọc status "deleted" nghĩa là "media nguồn đã bị xóa" (không phải trạng thái request).
  */
@@ -228,7 +240,7 @@ export async function getRequestLog(query: RequestLogQuery): Promise<RequestLogR
     user_label: userLabel(r.user),
     user_id: r.userId,
     status: r.status as RequestLogStatus,
-    duration_ms: durationMs(r.status, r.createdAt, r.updatedAt),
+    duration_ms: durationMs(r.status, r.createdAt, r.finishedAt),
     cost_vnd: r.costVnd,
     aspect_ratio: r.aspectRatio,
     resolution: r.resolution,
@@ -249,8 +261,13 @@ async function buildSummary(where: Prisma.RequestLogWhereInput): Promise<Request
   const [groups, durRows] = await Promise.all([
     prisma.requestLog.groupBy({ by: ["status"], where, _count: { _all: true } }),
     prisma.requestLog.findMany({
-      where: { ...where, status: "completed" },
-      select: { createdAt: true, updatedAt: true },
+      where: {
+        ...where,
+        status: "completed",
+        // Chỉ lấy dòng có mốc finishedAt tin cậy — tránh updatedAt bị ghi khi xóa media.
+        NOT: { finishedAt: null },
+      },
+      select: { createdAt: true, finishedAt: true },
       take: 1000,
       orderBy: { createdAt: "desc" },
     }),
@@ -269,7 +286,7 @@ async function buildSummary(where: Prisma.RequestLogWhereInput): Promise<Request
   const success_rate = finished > 0 ? completed / finished : null;
 
   const durations = durRows
-    .map((r) => r.updatedAt.getTime() - r.createdAt.getTime())
+    .map((r) => (r.finishedAt ? r.finishedAt.getTime() - r.createdAt.getTime() : -1))
     .filter((ms) => ms >= 0);
   const avg_duration_ms = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : null;
 

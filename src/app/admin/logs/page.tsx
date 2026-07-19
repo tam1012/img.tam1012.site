@@ -141,7 +141,7 @@ export default function AdminLogsPage() {
         </div>
         <p className="text-xs text-zinc-500">
           Toàn bộ request tạo/sửa ảnh và tạo video, gồm cả request đi thẳng nhà cung cấp (không qua proxy).
-          Thời gian tạo là ước lượng theo thời điểm bắt đầu và hoàn tất.
+          Thời gian tạo = mốc request xong − bắt đầu (không bị ảnh hưởng khi user xóa ảnh sau).
         </p>
 
         {error && <div className="rounded-xl border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-200">{error}</div>}
