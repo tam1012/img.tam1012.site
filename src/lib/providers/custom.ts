@@ -5,6 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 import type { ProviderConfig } from "../db";
 import { XAI_BASE_URL, runWithXaiAccount, xaiAuthPool } from "../xai-auth-pool";
 import { editFlowImageViaRoute, generateFlowImageViaRoute } from "../flow-client";
+import { withVertexImageThrottle } from "../vertex-image-throttle";
 
 export interface GenerateParams {
   prompt: string;
@@ -328,7 +329,11 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
     try {
       const results: GeneratedImage[] = [];
       for (let i = 0; i < count; i++) {
-        results.push(await chatCompletionsGenerate(client, config.model, params));
+        results.push(
+          await withVertexImageThrottle(config.model, () =>
+            chatCompletionsGenerate(client, config.model, params),
+          ),
+        );
       }
       return results;
     } catch (err: unknown) {
@@ -421,7 +426,9 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
 
   if (shouldUseChatForOpenAI(config.model)) {
     try {
-      return await chatCompletionsEdit(client, config.model, params);
+      return await withVertexImageThrottle(config.model, () =>
+        chatCompletionsEdit(client, config.model, params),
+      );
     } catch (err: unknown) {
       throw new Error(`Chỉnh sửa ảnh thất bại với model "${config.model}": ${errorMessage(err)}`);
     }
