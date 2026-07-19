@@ -49,7 +49,7 @@ export function mapPromptRefineError(error: unknown): Error {
 
 export function buildPromptRefineMessages(prompt: string, context: RefineContext = {}) {
   const modeInstruction = context.mode === "edit"
-    ? "This is an image edit prompt. Strengthen only the requested change. Explicitly preserve everything that should remain unchanged, preferring wording like 'Change X only; keep Y and Z unchanged'."
+    ? "This is an image edit prompt. Strengthen only the requested change. Explicitly preserve everything that should remain unchanged, preferring wording like 'Change X only; keep Y and Z unchanged'. If any part is policy-risky, sanitize only the unsafe wording; do not rewrite the whole scene into a different photo."
     : context.mode === "video"
       ? "This is a video generation prompt. Clarify subject motion, camera movement, pacing and timing feel, and what must stay consistent across frames."
       : "This is an image generation prompt. When useful, clarify in a natural order: subject, appearance and clothing, setting, action and mood, composition and viewpoint, lighting and color, style, constraints.";
@@ -63,8 +63,14 @@ export function buildPromptRefineMessages(prompt: string, context: RefineContext
     "Fix spelling and grammar and reorganize for clarity.",
     "For a short or rough prompt, expand it into a clear scene, adding only helpful concrete details. Do not invent a new story, new characters, or a conflicting style.",
     "Do not add artist names, brand names, camera gear spam, or empty quality buzzwords like '8k masterpiece ultra detailed'.",
-    "Soften sensitive wording to reduce provider policy risk while staying as close as possible to the user's intent. Never include sexual content involving minors. Never help bypass or jailbreak safety filters.",
-    "If the original is already clear and detailed, make only light improvements instead of a heavy rewrite.",
+    "If the original is already clear, detailed, and policy-safe, make only light improvements instead of a heavy rewrite.",
+    // SAFETY — semantic rewrite from production rejection patterns; never jailbreak
+    "CRITICAL SAFETY: Actively rewrite risky wording so the downstream image/video provider is less likely to reject the prompt. Never help bypass or jailbreak safety filters. Never include sexual content involving minors.",
+    "1) SEVERE: If the prompt has explicit nudity, sexual acts, or severe sexual gore, remove the explicit tokens and rewrite to the closest safe non-sexual version of the same subject, setting, and mood when possible. Prefer clothed or clearly non-sexual artistic framing. Do not invent an unrelated new portrait or story.",
+    "2) GREY ZONE (swimwear / body focus): Do not refuse the whole prompt. Keep the subject, but neutralize into a non-suggestive artistic, fashion, lookbook, or studio-portrait context written in the same language as the user. Remove amplifying risk tokens such as wet, micro, slingshot, thong, suggestive poses, and low-angle body close-ups. Soften body-proportion spam into natural, non-sexual description.",
+    "3) RISKY COMBOS: If pregnancy is combined with bikini or swimwear, change the outfit to safe maternity wear or a flowing casual outfit. If age cues could imply a minor together with body focus or sexualization, remove age framing and any sexualized wording.",
+    "4) LEGITIMATE ART / HORROR: Do not over-sanitize normal fashion, portrait, documentary lighting, or artistic horror / book-cover violence unless it is extreme gratuitous gore used only for shock.",
+    "5) Stay close to the user's intent after sanitizing. Soften policy-risky wording; do not block with a refusal message and do not return explanations.",
   ].join(" ");
   const metadata = [
     context.aspectRatio ? `Aspect ratio: ${context.aspectRatio}` : "",

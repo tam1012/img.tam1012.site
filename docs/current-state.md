@@ -26,7 +26,7 @@
 ## Prompt Refine
 
 - Public cho mọi user đã đăng nhập trên `/generate`, `/edit`, `/video`.
-- Mission: viết lại ý thô/ngắn/lủng củng thành 1 prompt rõ, đủ chi tiết cho model, đồng thời làm dịu wording dễ vướng policy (không chỉ sửa nhẹ). Prompt đã tốt thì chỉ chỉnh nhẹ.
+- Mission: viết lại ý thô/ngắn/lủng củng thành 1 prompt rõ, đủ chi tiết cho model, đồng thời làm dịu wording dễ vướng policy theo tầng (severe / grey zone swimwear-body / risky combos / không over-sanitize horror-nghệ thuật). Prompt đã tốt và an toàn thì chỉ chỉnh nhẹ.
 - UI dùng chung `src/components/PromptRefineControls.tsx`: user bấm chủ động, xem/sửa prompt và có thể hoàn tác.
 - Model: `gemini-3-flash-agent` qua CPA OpenAI-compatible/OAuth Antigravity.
 - Giữ nguyên ngôn ngữ gốc; không tự dịch Việt/Anh/Trung hay ngôn ngữ khác.

@@ -30,6 +30,16 @@
 
 ---
 
+## 2026-07-20: Refine safety theo tầng semantic (không blocklist)
+
+**Quyết định:** Nâng policy guidance trong `buildPromptRefineMessages` thành 5 rule actionable: SEVERE / GREY ZONE / RISKY COMBOS / LEGITIMATE ART-HORROR / stay-close-intent; edit sanitize cục bộ. Không blocklist từ khóa cứng.
+
+**Lý do:** Log reject 2026-07-13 cho thấy provider bắt ngữ nghĩa (bikini + ngữ cảnh, pregnant + swimwear, amplifier wet/micro…); 1 dòng “soften” không đủ dạy model cách dịu.
+
+**Hệ quả:** Chỉ đổi system prompt + tests/docs; user vẫn bấm preflight, vẫn hoàn tác được nếu rewrite không ưng.
+
+---
+
 ## 2026-07-11: Prompt Refine public nhưng là preflight độc lập
 
 **Quyết định:** Mọi user đăng nhập dùng refine trên Generate/Edit/Video; không tự refine trong pipeline và chưa tính phí.

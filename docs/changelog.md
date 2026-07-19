@@ -1,5 +1,11 @@
 # Changelog — IMG Studio
 
+## 2026-07-20 — Prompt Refine: safety shield theo tầng (log reject thật)
+
+- Nâng system prompt refine từ 1 dòng “soften sensitive wording” sang rule semantic 5 tầng dựa trên `docs/content-moderation-notes-2026-07-13.md` + log reject GPT/Grok.
+- SEVERE (nude/sex/gore tình dục): làm sạch nhưng giữ gần subject/setting/mood; GREY ZONE swimwear/body: không block, neo fashion/portrait same-language; RISKY COMBOS pregnant+bikini và age+body; không over-sanitize horror/bìa truyện hợp lệ; edit chỉ sanitize phần bẩn.
+- Cập nhật tests `tests/prompt-refine.test.ts`. Không đụng UI/API/rate-limit/billing.
+
 ## 2026-07-12 — Prompt Refine: viết lại cho rõ + wording an toàn policy
 
 - Đổi mission refine từ "sửa nhẹ" sang viết lại ý thô/ngắn/sai chính tả thành prompt rõ, đủ dùng cho model; prompt đã tốt vẫn chỉ chỉnh nhẹ.

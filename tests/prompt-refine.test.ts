@@ -57,6 +57,7 @@ describe("prompt refine core", () => {
     const video = buildPromptRefineMessages("A boat crossing the ocean", { mode: "video" });
     expect(edit[0].content).toContain("image edit");
     expect(edit[0].content).toContain("unchanged");
+    expect(edit[0].content).toContain("sanitize only the unsafe wording");
     expect(video[0].content).toContain("video generation");
     expect(video[0].content).toContain("motion");
     expect(video[0].content).toContain("consistent across frames");
@@ -69,11 +70,17 @@ describe("prompt refine core", () => {
     expect(system).not.toContain("only minimal edits");
   });
 
-  it("có hướng dẫn làm dịu policy và chặn nội dung cấm", () => {
+  it("có hướng dẫn làm dịu policy theo tầng và chặn nội dung cấm", () => {
     const system = buildPromptRefineMessages("một cảnh nhạy cảm").at(0)!.content;
-    expect(system).toContain("Soften sensitive wording");
+    expect(system).toContain("CRITICAL SAFETY");
     expect(system).toContain("Never include sexual content involving minors");
     expect(system).toContain("jailbreak");
+    expect(system).toContain("GREY ZONE");
+    expect(system).toContain("swimwear");
+    expect(system).toContain("RISKY COMBOS");
+    expect(system).toContain("LEGITIMATE ART / HORROR");
+    expect(system).toContain("same language as the user");
+    expect(system).not.toContain("Soften sensitive wording");
   });
 
   it("cấm spam tên nghệ sĩ, thương hiệu và quality buzzwords", () => {
