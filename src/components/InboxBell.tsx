@@ -34,6 +34,7 @@ export default function InboxBell({ visible }: { visible: boolean }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const locale = typeof window !== "undefined" ? document.documentElement.lang || "vi" : "vi";
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -58,14 +59,26 @@ export default function InboxBell({ visible }: { visible: boolean }) {
 
   useEffect(() => {
     if (!open) return;
+    function handlePointerDown(event: PointerEvent) {
+      // Click ngoài wrapper (gồm cả nút chuông lẫn dropdown) -> đóng.
+      if (!wrapRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setActiveId(null);
+      }
+    }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         if (activeId) setActiveId(null);
         else setOpen(false);
       }
     }
+    // pointerdown + capture để chặn trước khi element khác xử lý.
+    window.addEventListener("pointerdown", handlePointerDown, true);
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [open, activeId]);
 
   const markOneRead = useCallback(async (msg: Message) => {
@@ -97,7 +110,7 @@ export default function InboxBell({ visible }: { visible: boolean }) {
   const active = activeId ? messages.find((m) => m.id === activeId) ?? null : null;
 
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapRef}>
       <button
         type="button"
         onClick={() => {
@@ -120,19 +133,7 @@ export default function InboxBell({ visible }: { visible: boolean }) {
       </button>
 
       {open && (
-        <>
-          {/* overlay bắt click-ngoài để đóng */}
-          <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            onClick={() => {
-              setOpen(false);
-              setActiveId(null);
-            }}
-            className="fixed inset-0 z-[60] cursor-default"
-          />
-          <div className="absolute right-0 top-full z-[65] mt-2 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40">
+        <div className="fixed right-2 top-14 z-[65] w-[calc(100vw-1rem)] max-w-sm overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40">
             {active ? (
               // ---- Xem chi tiết 1 tin (inline, không Modal) ----
               <div>
@@ -199,7 +200,6 @@ export default function InboxBell({ visible }: { visible: boolean }) {
               </div>
             )}
           </div>
-        </>
       )}
     </div>
   );
