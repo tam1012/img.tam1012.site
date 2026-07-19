@@ -369,6 +369,25 @@ const vi = {
     finalCtaSubtitle: "Tạo tài khoản trong chưa đầy một phút và nhận ngay {count} ảnh miễn phí.",
     finalCtaButton: "Tạo tài khoản miễn phí",
   },
+  inbox: {
+    title: "Thông báo",
+    empty: "Không có thông báo",
+    markAllRead: "Đánh dấu tất cả đã đọc",
+    markRead: "Đánh dấu đã đọc",
+    unread: "{count} chưa đọc",
+    sentTo: "Đã gửi cho {count} người",
+    sentToUser: "Đã gửi tin nhắn",
+    sendAll: "Gửi tất cả",
+    sendToUser: "Gửi cho người này",
+    composeTitle: "Tiêu đề",
+    composeBody: "Nội dung",
+    send: "Gửi",
+    sending: "Đang gửi...",
+    history: "Lịch sử đã gửi",
+    recipients: "{count} người nhận",
+    labelBroadcast: "Gửi tất cả",
+    labelSingle: "Riêng bạn",
+  },
 } as const;
 
 type DeepStringify<T> = {

@@ -76,6 +76,12 @@ enum RequestDeleteMode {
   hard
 }
 
+/// Phạm vi tin nhắn admin→user (gửi 1 người hay gửi tất cả).
+enum MessageScope {
+  single
+  broadcast
+}
+
 model User {
   id           String     @id @default(uuid())
   email        String?    @unique
@@ -96,6 +102,7 @@ model User {
   payosOrders PayosOrder[]
   apiKeys     ApiKey[]
   requestLogs RequestLog[]
+  messages    Message[]
 }
 
 model Wallet {
@@ -321,4 +328,22 @@ model ApiKey {
 
   @@index([userId, createdAt])
   @@index([userId, revokedAt])
+}
+
+/// Tin nhắn 1 chiều admin→user. Fan-out 1 dòng/user cho cả broadcast.
+model Message {
+  id        String       @id @default(uuid())
+  userId    String
+  title     String
+  body      String       @db.Text
+  scope     MessageScope @default(single)
+  createdBy String?
+  isRead    Boolean      @default(false)
+  readAt    DateTime?
+  createdAt DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, isRead])
 }

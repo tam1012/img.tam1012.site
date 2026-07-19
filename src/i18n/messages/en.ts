@@ -372,6 +372,25 @@ const en: Messages = {
     finalCtaSubtitle: "Create an account in under a minute and get {count} free images right away.",
     finalCtaButton: "Create a free account",
   },
+  inbox: {
+    title: "Notifications",
+    empty: "No notifications",
+    markAllRead: "Mark all as read",
+    markRead: "Mark as read",
+    unread: "{count} unread",
+    sentTo: "Sent to {count} users",
+    sentToUser: "Message sent",
+    sendAll: "Send to all",
+    sendToUser: "Send to this user",
+    composeTitle: "Title",
+    composeBody: "Body",
+    send: "Send",
+    sending: "Sending...",
+    history: "Sent history",
+    recipients: "{count} recipients",
+    labelBroadcast: "Broadcast",
+    labelSingle: "To you",
+  },
 };
 
 export default en;

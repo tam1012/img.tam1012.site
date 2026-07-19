@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
 import ImageStatsPanel from "@/components/ImageStatsPanel";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import MessageComposer from "@/components/admin/MessageComposer";
 import { formatLedgerType } from "@/lib/pricing";
 
 interface AdminUser {
@@ -270,6 +271,16 @@ export default function AdminPage() {
           </div>
         </section>
 
+        <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 space-y-3">
+          <div>
+            <h2 className="text-sm font-medium text-zinc-200">Thông báo tới người dùng</h2>
+            <p className="text-xs text-zinc-500 mt-1">
+              Gửi cho toàn bộ tài khoản đang hoạt động. Mỗi user nhận trong biểu tượng chuông trên cùng.
+            </p>
+          </div>
+          <MessageComposer target="broadcast" />
+        </section>
+
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
           <section className="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
             <div className="flex flex-col sm:flex-row gap-3 p-4 border-b border-zinc-800">
@@ -373,6 +384,11 @@ export default function AdminPage() {
                       {statusSaving ? "Đang lưu..." : selected.status === "blocked" ? "Mở khoá" : "Khoá tài khoản"}
                     </button>
                   </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-medium text-zinc-300 mb-2">Gửi tin nhắn</h3>
+                  <MessageComposer target={selected.id} />
                 </div>
 
                 <div className="space-y-3">

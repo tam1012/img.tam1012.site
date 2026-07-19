@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import AccountMenu, { AccountMenuData } from "@/components/AccountMenu";
+import InboxBell from "@/components/InboxBell";
 import LanguageSwitcher from "@/i18n/LanguageSwitcher";
 import { useT } from "@/i18n";
 
@@ -68,6 +69,7 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <InboxBell visible={!!me} />
           <LanguageSwitcher size="sm" />
           <div className="md:hidden">
             <AccountMenu me={me} onLogout={handleLogout} compact />
