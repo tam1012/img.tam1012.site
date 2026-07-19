@@ -129,6 +129,7 @@ export default function MobileNav() {
                 <>
                   <SheetLink href="/settings" label={t("nav.settings")} />
                   <SheetLink href="/admin" label={t("nav.admin")} />
+                  <SheetLink href="/admin/stats" label={t("nav.adminStats")} />
                   <SheetLink href="/admin/logs" label={t("nav.adminLogs")} />
                 </>
               )}

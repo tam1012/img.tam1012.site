@@ -335,10 +335,8 @@ export default function GalleryPage() {
             )}
 
             <div className="mb-4">
-              <ImageStatsPanel
-                scope={isAdmin && scope === "all" ? "all" : "mine"}
-                title={isAdmin && scope === "all" ? t("gallery.statsAll") : t("gallery.statsMine")}
-              />
+              {/* Gallery chỉ stats của mình. Admin xem toàn site ở /admin/stats. */}
+              <ImageStatsPanel scope="mine" title={t("gallery.statsMine")} />
             </div>
 
             {canBulkManage && (

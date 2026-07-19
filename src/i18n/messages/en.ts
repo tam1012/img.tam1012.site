@@ -76,6 +76,7 @@ const en: Messages = {
     closeMenu: "Close menu",
     settings: "Settings",
     admin: "Admin",
+    adminStats: "Stats",
     adminLogs: "Request logs",
     apiDocs: "API docs",
     logout: "Log out",

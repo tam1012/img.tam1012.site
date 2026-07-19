@@ -2,7 +2,7 @@ import { prisma } from "./prisma";
 
 const TIMEZONE = "Asia/Ho_Chi_Minh";
 
-export type StatsPeriodKey = "day" | "week" | "month";
+export type StatsPeriodKey = "day" | "week" | "month" | "custom";
 
 export type ModelStatRow = {
   model: string;
@@ -130,15 +130,21 @@ function sumRows(rows: ModelStatRow[]) {
 /**
  * Thống kê sản lượng ảnh đã tạo/sửa thành công.
  * Nguồn: bảng ImageUsage (bất biến) — hard-delete gallery không làm tụt số.
+ * Có from+to → chỉ trả 1 kỳ "custom"; không có → trả hôm nay / tuần / tháng.
  */
 export async function getImageStats(opts: {
   userId?: string;
   scope: "mine" | "all";
   model?: string | null;
+  from?: Date | null;
+  to?: Date | null;
 }): Promise<ImageStatsResult> {
   const now = new Date();
   const bounds = periodBounds(now);
   const modelFilter = opts.model?.trim() || null;
+  const customFrom = opts.from ?? null;
+  const customTo = opts.to ?? null;
+  const useCustom = !!(customFrom && customTo && customFrom.getTime() <= customTo.getTime());
 
   const baseWhere = {
     ...(opts.userId ? { userId: opts.userId } : {}),
@@ -172,19 +178,6 @@ export async function getImageStats(opts: {
     ];
   }
 
-  const [daySplit, weekSplit, monthSplit, modelRows] = await Promise.all([
-    splitEdit(bounds.day.from, bounds.day.to),
-    splitEdit(bounds.week.from, bounds.week.to),
-    splitEdit(bounds.month.from, bounds.month.to),
-    prisma.imageUsage.findMany({
-      where: opts.userId ? { userId: opts.userId } : {},
-      distinct: ["model"],
-      select: { model: true },
-      orderBy: { model: "asc" },
-      take: 100,
-    }),
-  ]);
-
   function buildPeriod(key: StatsPeriodKey, label: string, from: Date, to: Date, split: AggregateRow[]): PeriodStat {
     const map = emptyModelMap();
     applyRows(map, split);
@@ -201,6 +194,38 @@ export async function getImageStats(opts: {
       by_model,
     };
   }
+
+  const modelRowsPromise = prisma.imageUsage.findMany({
+    where: opts.userId ? { userId: opts.userId } : {},
+    distinct: ["model"],
+    select: { model: true },
+    orderBy: { model: "asc" },
+    take: 100,
+  });
+
+  if (useCustom) {
+    const from = customFrom!;
+    const to = customTo!;
+    const [customSplit, modelRows] = await Promise.all([
+      splitEdit(from, to),
+      modelRowsPromise,
+    ]);
+    const models = [...new Set(modelRows.map((r) => r.model).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    return {
+      timezone: TIMEZONE,
+      scope: opts.scope,
+      model: modelFilter,
+      models,
+      periods: [buildPeriod("custom", "Tùy chỉnh", from, to, customSplit)],
+    };
+  }
+
+  const [daySplit, weekSplit, monthSplit, modelRows] = await Promise.all([
+    splitEdit(bounds.day.from, bounds.day.to),
+    splitEdit(bounds.week.from, bounds.week.to),
+    splitEdit(bounds.month.from, bounds.month.to),
+    modelRowsPromise,
+  ]);
 
   const models = [...new Set(modelRows.map((r) => r.model).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 

@@ -74,6 +74,7 @@ const vi = {
     closeMenu: "Đóng menu",
     settings: "Cài đặt",
     admin: "Admin",
+    adminStats: "Thống kê",
     adminLogs: "Nhật ký request",
     apiDocs: "Hướng dẫn API",
     logout: "Đăng xuất",

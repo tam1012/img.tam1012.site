@@ -98,6 +98,7 @@ export default function AccountMenu({ me, onLogout, compact = false }: AccountMe
               <>
                 <MenuLink href="/settings" label={t("nav.settings")} />
                 <MenuLink href="/admin" label={t("nav.admin")} />
+                <MenuLink href="/admin/stats" label={t("nav.adminStats")} />
                 <MenuLink href="/admin/logs" label={t("nav.adminLogs")} />
               </>
             )}
