@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "@/i18n";
 import Modal from "@/components/ui/Modal";
-
 type Message = {
   id: string;
   title: string;
@@ -35,6 +34,7 @@ export default function InboxBell({ visible }: { visible: boolean }) {
   const [active, setActive] = useState<Message | null>(null);
   const locale = typeof window !== "undefined" ? document.documentElement.lang || "vi" : "vi";
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -57,8 +57,25 @@ export default function InboxBell({ visible }: { visible: boolean }) {
     };
   }, [visible, fetchMessages]);
 
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: PointerEvent) {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   const markOneRead = useCallback(
     async (msg: Message) => {
+      setOpen(false);
       setActive(msg);
       if (msg.is_read) return;
       try {
@@ -88,7 +105,7 @@ export default function InboxBell({ visible }: { visible: boolean }) {
 
   return (
     <>
-      <div className="relative">
+      <div className="relative" ref={wrapRef}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -107,21 +124,19 @@ export default function InboxBell({ visible }: { visible: boolean }) {
           )}
         </button>
         {open && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden="true" />
-            <div className="absolute right-0 top-full z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40">
-              <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2.5">
-                <span className="text-sm font-semibold text-zinc-100">{t("inbox.title")}</span>
-                {unread > 0 && (
-                  <button
-                    type="button"
-                    onClick={markAllRead}
-                    className="text-xs text-zinc-400 hover:text-zinc-100 cursor-pointer"
-                  >
-                    {t("inbox.markAllRead")}
-                  </button>
-                )}
-              </div>
+          <div className="absolute right-0 top-full z-50 mt-1 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/40">
+            <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2.5">
+              <span className="text-sm font-semibold text-zinc-100">{t("inbox.title")}</span>
+              {unread > 0 && (
+                <button
+                  type="button"
+                  onClick={markAllRead}
+                  className="text-xs text-zinc-400 hover:text-zinc-100 cursor-pointer"
+                >
+                  {t("inbox.markAllRead")}
+                </button>
+              )}
+            </div>
               <div className="max-h-96 overflow-y-auto">
                 {messages.length === 0 ? (
                   <div className="px-3 py-6 text-center text-sm text-zinc-500">{t("inbox.empty")}</div>
@@ -148,7 +163,6 @@ export default function InboxBell({ visible }: { visible: boolean }) {
                 )}
               </div>
             </div>
-          </>
         )}
       </div>
 
