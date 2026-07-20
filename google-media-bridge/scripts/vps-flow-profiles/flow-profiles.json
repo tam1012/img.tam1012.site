@@ -1,0 +1,34 @@
+{
+  "profilesRoot": "/home/ubuntu/flow-profiles",
+  "chromiumPath": "/usr/bin/chromium",
+  "publicKeyFile": "/home/ubuntu/flow-bridge-secrets/flow-enrollment-public.pem",
+  "applyScript": "/home/ubuntu/img-studio/google-media-bridge/scripts/apply-enrollment.cjs",
+  "container": "google-media-bridge",
+  "accounts": [
+    {
+      "alias": "flow-01",
+      "email": "vantam1012@gmail.com",
+      "folder": "flow-01-vantam1012"
+    },
+    {
+      "alias": "flow-02",
+      "email": "babyinmyl0v3@gmail.com",
+      "folder": "flow-02-babyinmyl0v3"
+    },
+    {
+      "alias": "flow-03",
+      "email": "lovanmuon87@gmail.com",
+      "folder": "flow-03-lovanmuon87"
+    },
+    {
+      "alias": "flow-04",
+      "email": "mrvantam@gmail.com",
+      "folder": "flow-04-mrvantam"
+    },
+    {
+      "alias": "flow-05",
+      "email": "selenabk@gmail.com",
+      "folder": "flow-05-selenabk"
+    }
+  ]
+}

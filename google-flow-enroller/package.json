@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "enroll": "tsx src/enroll-and-push.ts",
+    "reauth:profile": "tsx src/reauth-from-profile.ts",
     "status": "tsx src/flow-status.ts",
     "probe:export": "tsx src/probes/export-session.ts",
     "probe:meta": "tsx src/probes/read-flow-meta.ts",
