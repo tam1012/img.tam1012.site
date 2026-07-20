@@ -5,60 +5,65 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 MAP="$ROOT/flow-profiles.json"
-PROFILES_ROOT="$(python3 -c "import json;print(json.load(open('$MAP'))['profilesRoot'])")"
-CHROME="$(python3 -c "import json;print(json.load(open('$MAP'))['chromiumPath'])")"
+
+if [[ ! -f "$MAP" ]]; then
+  echo "Thieu $MAP"
+  exit 1
+fi
+
+PROFILES_ROOT="$(python3 -c "import json; print(json.load(open('$MAP'))['profilesRoot'])")"
+CHROME="$(python3 -c "import json; print(json.load(open('$MAP'))['chromiumPath'])")"
 
 usage() {
   echo "Usage: $0 <flow-01|flow-02|...|1-5|email>"
   echo "Accounts:"
-  python3 - <<'PY'
+  python3 -c "
 import json
-from pathlib import Path
-m=json.loads(Path("'"$MAP"'").read_text())
-for i,a in enumerate(m["accounts"],1):
-  print(f"  {i}) {a['alias']:8} {a['email']}")
-PY
+m=json.load(open('$MAP'))
+for i,a in enumerate(m['accounts'],1):
+  print(f\"  {i}) {a['alias']:8} {a['email']}\")
+"
   exit 1
 }
 
 [[ $# -lt 1 ]] && usage
 KEY="$1"
 
-ALIAS_FOLDER="$(python3 - <<PY
-import json,sys
-from pathlib import Path
-key=sys.argv[1].strip().lower()
-m=json.loads(Path("$MAP").read_text())
-accs=m["accounts"]
-chosen=None
+RESOLVED="$(python3 -c "
+import json, sys
+key = sys.argv[1].strip().lower()
+m = json.load(open(sys.argv[2]))
+accs = m['accounts']
+chosen = None
 if key.isdigit():
-  i=int(key)
-  if 1<=i<=len(accs): chosen=accs[i-1]
+    i = int(key)
+    if 1 <= i <= len(accs):
+        chosen = accs[i-1]
 else:
-  for a in accs:
-    if a["alias"].lower()==key or a["email"].lower()==key or a["folder"].lower()==key:
-      chosen=a; break
+    for a in accs:
+        if a['alias'].lower()==key or a['email'].lower()==key or a['folder'].lower()==key:
+            chosen = a
+            break
 if not chosen:
-  print("", end=""); sys.exit(2)
-print(chosen["alias"]+"|"+chosen["email"]+"|"+chosen["folder"])
-PY
-"$KEY")" || { echo "Khong tim thay account: $KEY"; usage; }
+    sys.exit(2)
+print(chosen['alias'])
+print(chosen['email'])
+print(chosen['folder'])
+" "$KEY" "$MAP")" || {
+  echo "Khong tim thay account: $KEY"
+  usage
+}
 
-ALIAS="${ALIAS_FOLDER%%|*}"
-REST="${ALIAS_FOLDER#*|}"
-EMAIL="${REST%%|*}"
-FOLDER="${REST##*|}"
+ALIAS="$(echo "$RESOLVED" | sed -n '1p')"
+EMAIL="$(echo "$RESOLVED" | sed -n '2p')"
+FOLDER="$(echo "$RESOLVED" | sed -n '3p')"
 UD="$PROFILES_ROOT/$FOLDER"
 mkdir -p "$UD"
 
-# Desktop VPS qua Guacamole / LightDM :0
 export DISPLAY="${DISPLAY:-:0}"
 if [[ -z "${XAUTHORITY:-}" ]]; then
   if [[ -f /home/ubuntu/.Xauthority ]]; then
     export XAUTHORITY=/home/ubuntu/.Xauthority
-  elif [[ -f /var/run/lightdm/root/:0 ]]; then
-    # fallback — có thể cần sudo xhost +SI:localuser:ubuntu
-    export XAUTHORITY=/var/run/lightdm/root/:0
   fi
 fi
 
@@ -71,15 +76,21 @@ echo "  Dir:    $UD"
 echo "  DISPLAY $DISPLAY"
 echo
 echo "Huong dan:"
-echo "  1. Vao Guacamole desktop VPS (neu chua)"
+echo "  1. Vao Guacamole desktop VPS"
 echo "  2. Cua so Chromium se mo Flow"
 echo "  3. Dang nhap Google dung email tren + vao duoc Flow"
 echo "  4. Dong Chromium"
-echo "  5. Chay: $ROOT/reauth.sh $ALIAS"
+echo "  5. Bao em (hoac chay reauth.sh $ALIAS)"
 echo
 
-# Cho phep user ubuntu ve :0 neu can (khong fail script neu khong duoc)
 xhost +SI:localuser:ubuntu >/dev/null 2>&1 || true
+xhost +local: >/dev/null 2>&1 || true
+
+# Neu DISPLAY khong dung, van mo headless=false co the fail — thu :0
+if ! xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+  echo "Canh bao: khong ket noi duoc DISPLAY=$DISPLAY"
+  echo "Thu mo bang nohup van the; neu khong thay cua so, bao em."
+fi
 
 nohup "$CHROME" \
   --user-data-dir="$UD" \
@@ -88,8 +99,17 @@ nohup "$CHROME" \
   --disable-session-crashed-bubble \
   --password-store=basic \
   --no-sandbox \
+  --disable-dev-shm-usage \
   "https://labs.google/fx/tools/flow" \
-  >/tmp/flow-open-$ALIAS.log 2>&1 &
+  >"/tmp/flow-open-$ALIAS.log" 2>&1 &
 
-echo "Da mo Chromium (pid $!). Log: /tmp/flow-open-$ALIAS.log"
-echo "Xong login thi chay: $ROOT/reauth.sh $ALIAS"
+PID=$!
+sleep 2
+if kill -0 "$PID" 2>/dev/null; then
+  echo "Da mo Chromium (pid $PID). Log: /tmp/flow-open-$ALIAS.log"
+else
+  echo "Chromium co the da thoat. Xem log:"
+  tail -n 30 "/tmp/flow-open-$ALIAS.log" 2>/dev/null || true
+  exit 1
+fi
+echo "Xong login thi bao em chay reauth, hoac: $ROOT/reauth.sh $ALIAS"

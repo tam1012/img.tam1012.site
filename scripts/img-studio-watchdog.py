@@ -46,6 +46,18 @@ FAIL_RATE_THRESHOLD = float(os.environ.get("IMG_WATCHDOG_FAIL_RATE", "0.4"))
 FAIL_RATE_MIN_TOTAL = int(os.environ.get("IMG_WATCHDOG_FAIL_RATE_MIN", "8"))
 # Tự hoàn tiền job treo (1 = bật)
 AUTO_REFUND_STUCK = os.environ.get("IMG_WATCHDOG_AUTO_REFUND", "1").strip() not in ("0", "false", "no")
+# Báo Telegram khi account Flow cần reauth (1 = bật)
+FLOW_REAUTH_ALERT = os.environ.get("IMG_WATCHDOG_FLOW_REAUTH", "1").strip() not in (
+    "0",
+    "false",
+    "no",
+)
+# Container bridge + đường dẫn lệnh reauth trên VPS (GUI/SSH)
+FLOW_BRIDGE_CONTAINER = os.environ.get("IMG_WATCHDOG_FLOW_BRIDGE_CONTAINER", "google-media-bridge")
+FLOW_REAUTH_CMD_DIR = os.environ.get(
+    "IMG_WATCHDOG_FLOW_REAUTH_CMD_DIR",
+    "/home/ubuntu/flow-profiles/tools",
+)
 
 ADMIN_URL = os.environ.get("IMG_STUDIO_ADMIN_URL", "https://imgstudio.site/admin/logs")
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -503,6 +515,90 @@ WHERE enabled = true
     return sorted(set(missing))
 
 
+def fetch_flow_bridge_accounts() -> list[dict]:
+    """Đọc danh sách account Flow qua Admin API trong container bridge.
+
+    Admin key chỉ nằm trong env container — watchdog host không cần (và không được) giữ key.
+    """
+    # Node one-liner: tránh phụ thuộc file list-accounts.cjs có trong image hay không.
+    js = (
+        "(async()=>{"
+        "const k=process.env.FLOW_BRIDGE_ADMIN_KEY;"
+        "if(!k){console.error('FLOW_BRIDGE_ADMIN_KEY missing');process.exit(2)}"
+        "const p=process.env.FLOW_BRIDGE_PORT||'8460';"
+        "const r=await fetch('http://127.0.0.1:'+p+'/admin/v1/accounts',"
+        "{headers:{Authorization:'Bearer '+k}});"
+        "const t=await r.text();"
+        "if(r.status!==200){console.error('HTTP '+r.status+': '+t.slice(0,200));process.exit(1)}"
+        "process.stdout.write(t);"
+        "})().catch(e=>{console.error(e&&e.message?e.message:e);process.exit(1)})"
+    )
+    cmd = ["docker", "exec", FLOW_BRIDGE_CONTAINER, "node", "-e", js]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip()
+        raise RuntimeError(f"flow bridge accounts failed: {err[:300]}")
+    raw = (r.stdout or "").strip()
+    if not raw:
+        return []
+    data = json.loads(raw)
+    accounts = data.get("accounts") if isinstance(data, dict) else None
+    if not isinstance(accounts, list):
+        raise RuntimeError("flow bridge accounts: missing accounts[]")
+    return [a for a in accounts if isinstance(a, dict)]
+
+
+def collect_flow_reauth_accounts() -> list[dict]:
+    """Account Flow đang reauth_required (cần Anh login tay + reauth.sh)."""
+    if not FLOW_REAUTH_ALERT:
+        return []
+    try:
+        accounts = fetch_flow_bridge_accounts()
+    except Exception as e:
+        log(f"flow reauth check skip: {e}")
+        # Báo bridge/list lỗi riêng — build_alerts sẽ gắn key watchdog:flow-bridge
+        raise
+    need = []
+    for a in accounts:
+        status = str(a.get("status") or "").strip().lower()
+        if status == "reauth_required":
+            need.append(a)
+    # Ổn định thứ tự: alias
+    need.sort(key=lambda x: str(x.get("alias") or x.get("id") or ""))
+    return need
+
+
+def format_flow_reauth_alert(account: dict, ts: str) -> tuple[str, str]:
+    """Trả (dedup_key, message) cho 1 account cần reauth."""
+    alias = str(account.get("alias") or account.get("id") or "unknown").strip()
+    email = str(account.get("email") or "(chưa có email)").strip()
+    failure = str(account.get("failureCode") or "reauth_required").strip()
+    reauth_cmd = f"{FLOW_REAUTH_CMD_DIR.rstrip('/')}/reauth.sh {alias}"
+    open_cmd = f"{FLOW_REAUTH_CMD_DIR.rstrip('/')}/open-profile.sh {alias}"
+    key = f"flow-reauth:{alias}"
+    msg = (
+        f"🔐 IMG Studio — Flow cần reauth\n"
+        f"• Account: {alias}\n"
+        f"• Email login: {email}\n"
+        f"• Lý do: {failure}\n"
+        f"• {ts}\n"
+        f"\n"
+        f"Cách xử lý (Guacamole desktop VPS):\n"
+        f"1) Mở terminal trên VPS, chạy:\n"
+        f"{reauth_cmd}\n"
+        f"2) Cửa sổ Chromium hiện ra → nếu hỏi password Gmail thì nhập\n"
+        f"   (đúng email trên). Thường không cần 2FA.\n"
+        f"3) Chờ script in XONG / healthy.\n"
+        f"\n"
+        f"Nếu reauth báo hết giờ / không vào được Flow:\n"
+        f"{open_cmd}\n"
+        f"→ login tay → đóng Chromium → chạy lại reauth.sh\n"
+        f"\n"
+        f"Lưu ý: tắt Chromium profile đó trước khi reauth (tránh khoá profile)."
+    )
+    return key, msg
+
+
 def build_alerts(refund_lines: list[str] | None = None) -> list[tuple[str, str]]:
     alerts: list[tuple[str, str]] = []
     ts = now_vn_str()
@@ -589,6 +685,23 @@ def build_alerts(refund_lines: list[str] | None = None) -> list[tuple[str, str]]
         )
         alerts.append((key, msg))
 
+    # 5) Flow account cần reauth (mỗi account 1 tin, kèm lệnh sẵn)
+    if FLOW_REAUTH_ALERT:
+        try:
+            for acc in collect_flow_reauth_accounts():
+                alerts.append(format_flow_reauth_alert(acc, ts))
+        except Exception as e:
+            # Bridge down / admin API lỗi — báo riêng, không nuốt im
+            key = "watchdog:flow-bridge"
+            msg = (
+                f"⚠️ IMG Studio — không đọc được pool Flow\n"
+                f"• Không kiểm tra được account cần reauth\n"
+                f"• Lỗi: {type(e).__name__}: {str(e)[:240]}\n"
+                f"• Kiểm tra container {FLOW_BRIDGE_CONTAINER}\n"
+                f"• {ts}"
+            )
+            alerts.append((key, msg))
+
     return alerts
 
 
@@ -605,13 +718,21 @@ def main() -> int:
         return 2
 
     if env.get("IMG_WATCHDOG_TEST") == "1" or "--test" in sys.argv:
+        flow_line = f"• Báo Flow reauth: {'BẬT' if FLOW_REAUTH_ALERT else 'TẮT'}"
+        if FLOW_REAUTH_ALERT:
+            try:
+                n_reauth = len(collect_flow_reauth_accounts())
+                flow_line += f" (hiện {n_reauth} acc cần reauth)"
+            except Exception as e:
+                flow_line += f" (đọc bridge lỗi: {type(e).__name__})"
         send_telegram(
             token,
             chat_id,
             f"✅ IMG Studio watchdog online\n"
             f"• Giờ VN: {now_vn_str()}\n"
             f"• Auto hoàn job treo: {'BẬT' if AUTO_REFUND_STUCK else 'TẮT'}\n"
-            f"• Ảnh/edit >{STUCK_IMAGE_MIN}p, video >{STUCK_VIDEO_MIN}p",
+            f"• Ảnh/edit >{STUCK_IMAGE_MIN}p, video >{STUCK_VIDEO_MIN}p\n"
+            f"{flow_line}",
         )
         log("test message sent")
         return 0

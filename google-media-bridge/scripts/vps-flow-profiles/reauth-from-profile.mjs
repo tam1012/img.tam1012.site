@@ -24,7 +24,8 @@ const map = JSON.parse(readFileSync(join(here, "flow-profiles.json"), "utf8"));
 const FLOW_URL = "https://labs.google/fx/tools/flow";
 const SESSION_ENDPOINT = "/fx/api/auth/session";
 const AISANDBOX_SCOPE = "https://www.googleapis.com/auth/aisandbox";
-const LOGIN_TIMEOUT_MS = Number(process.env.FLOW_LOGIN_TIMEOUT_MS || 3 * 60_000);
+// Mặc định 10 phút: đủ để Anh bấm Allow OAuth trên Guacamole nếu session chưa có aisandbox.
+const LOGIN_TIMEOUT_MS = Number(process.env.FLOW_LOGIN_TIMEOUT_MS || 10 * 60_000);
 
 function log(msg) {
   process.stderr.write(`${msg}\n`);
@@ -204,6 +205,13 @@ async function main() {
   log(`user-data-dir: ${userDataDir}`);
 
   const port = await freePort();
+  // KHÔNG headless: headless dễ mất OAuth aisandbox / nhảy accountchooser.
+  // Mở GUI trên DISPLAY Guacamole (:1) để dùng đúng cookie phiên login tay.
+  const display = process.env.DISPLAY || ":1";
+  const xauth = process.env.XAUTHORITY || "/home/ubuntu/.Xauthority";
+  process.env.DISPLAY = display;
+  process.env.XAUTHORITY = xauth;
+  log(`Mo Chromium GUI DISPLAY=${display} (neu hien OAuth/Allow thi Anh bam cho xong)`);
   const chrome = spawn(
     map.chromiumPath,
     [
@@ -215,11 +223,15 @@ async function main() {
       "--password-store=basic",
       "--no-sandbox",
       "--disable-dev-shm-usage",
-      // Headless new vẫn đọc cookie profile; GUI login dung open-profile.sh
-      "--headless=new",
+      "--window-size=1200,800",
+      "--window-position=80,80",
       FLOW_URL,
     ],
-    { stdio: "ignore", detached: false },
+    {
+      stdio: "ignore",
+      detached: false,
+      env: { ...process.env, DISPLAY: display, XAUTHORITY: xauth },
+    },
   );
 
   let browser;
