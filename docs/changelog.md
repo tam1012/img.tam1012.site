@@ -1,5 +1,12 @@
 # Changelog — IMG Studio
 
+## 2026-07-20 — Admin: điều hướng provider (rewrite) cấu hình được
+
+- Thêm panel Settings: bật/tắt rewrite tổng, rule nguồn→đích, áp generate/edit/both, gallery hiện model user chọn hoặc model thật.
+- Runtime áp cho generate 1 ảnh, batch, edit, Public API; 4K tự hạ 2K nếu đích chỉ hỗ trợ 2K.
+- Gallery/Image mặc định ghi model user chọn; RequestLog + ImageUsage (admin/stats) ghi model thật.
+- Lưu trong `SiteSetting` key `provider_rewrite`; mặc định tắt, chưa có rule.
+
 ## 2026-07-20 — Flow video: poll parser + timeout 20p + cứu file khi bridge đã xong
 
 - Bridge poll: không return sớm khi payload 200 rỗng; thử shape tiếp; 403 poll không còn = reauth ngay; ưu tiên payload `clientContext + operation.name`.

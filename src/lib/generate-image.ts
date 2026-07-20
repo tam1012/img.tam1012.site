@@ -10,6 +10,10 @@ import {
 import { imageIdempotencyKey, normalizeIdempotencyKey, validateImageOptions } from "@/lib/image-options";
 import { generateImage, computePixelSize } from "@/lib/providers";
 import { getImagePriceVnd } from "@/lib/pricing";
+import {
+  clampResolutionForProvider,
+  resolveProviderRoute,
+} from "@/lib/provider-rewrite";
 import { debitForImage, refundForImage, INSUFFICIENT_BALANCE } from "@/lib/wallet";
 import { saveImageFile } from "@/lib/storage";
 
@@ -51,7 +55,7 @@ export async function generateSingleImage(
 ): Promise<GenerateSingleResult> {
   const prompt = input.prompt?.trim() || "";
   const aspectRatio = input.aspectRatio || "1:1";
-  const resolution = input.resolution || "1K";
+  let resolution = input.resolution || "1K";
   const quality = input.quality || "standard";
   const clientKey = normalizeIdempotencyKey(input.clientKey);
 
@@ -69,13 +73,17 @@ export async function generateSingleImage(
     return { ok: false, status: 400, error: "Vui lòng chọn provider" };
   }
 
-  const provider = await getProviderById(input.providerId);
-  if (!provider) {
+  const requested = await getProviderById(input.providerId);
+  if (!requested) {
     return { ok: false, status: 404, error: "Provider không tồn tại" };
   }
-  if (provider.api_type === "chatgpt_bridge" && user.role !== "admin") {
+  if (requested.api_type === "chatgpt_bridge" && user.role !== "admin") {
     return { ok: false, status: 403, error: "Provider này chỉ dành cho admin." };
   }
+
+  const route = await resolveProviderRoute(requested, "generate");
+  const provider = route.actual as ProviderConfig;
+  resolution = clampResolutionForProvider(provider, resolution);
 
   const price = getImagePriceVnd();
   if (user.role !== "admin" && user.balanceVnd < price) {
@@ -113,9 +121,11 @@ export async function generateSingleImage(
   const { record: image, created } = await createImageRecordOnce({
     userId: user.id,
     prompt,
-    providerId: provider.id,
-    providerName: provider.name,
-    model: provider.model,
+    providerId: route.display.providerId,
+    providerName: route.display.providerName,
+    model: route.display.model,
+    logModel: route.actualMeta.model,
+    logProviderName: route.actualMeta.providerName,
     aspectRatio,
     resolution,
     width,
@@ -152,7 +162,7 @@ export async function generateSingleImage(
       charged = true;
     }
 
-    const results = await generateImage(provider as ProviderConfig, {
+    const results = await generateImage(provider, {
       prompt,
       width,
       height,
@@ -162,10 +172,13 @@ export async function generateSingleImage(
     });
     const result = results[0];
     const file = await saveImageFile(image.id, result.data, result.mimeType);
+    // Gallery giữ model hiển thị (user chọn); stats/admin giữ model thật.
     const record = await completeImageRecord(image.id, {
       filename: file.filename,
       mimeType: file.mimeType,
-      model: result.model,
+      model: route.display.model,
+      usageModel: route.actualMeta.model,
+      usageProviderName: route.actualMeta.providerName,
     });
 
     return {

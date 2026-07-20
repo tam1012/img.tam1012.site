@@ -47,6 +47,9 @@ type ImageCreateInput = {
   providerId: string;
   providerName: string;
   model: string;
+  /** Model/provider thật ghi vào RequestLog (khi rewrite ẩn model đích khỏi gallery). */
+  logModel?: string | null;
+  logProviderName?: string | null;
   aspectRatio?: string | null;
   resolution?: string | null;
   width?: number | null;
@@ -240,8 +243,9 @@ async function insertImageRecord(input: ImageCreateInput): Promise<ImageRecord> 
     await logRequestStart(tx, {
       userId: created.userId,
       kind,
-      model: created.model,
-      providerName: created.providerName,
+      // Admin log ưu tiên model thật (sau rewrite) nếu caller truyền riêng.
+      model: input.logModel || created.model,
+      providerName: input.logProviderName || created.providerName,
       costVnd: created.costVnd,
       aspectRatio: created.aspectRatio,
       resolution: created.resolution,
@@ -270,7 +274,18 @@ export async function createImageRecordOnce(input: ImageCreateInput): Promise<{ 
   }
 }
 
-export async function completeImageRecord(id: string, updates: { filename: string; mimeType: string; model?: string }) {
+export async function completeImageRecord(
+  id: string,
+  updates: {
+    filename: string;
+    mimeType: string;
+    /** Model ghi lên Image (gallery). Không truyền thì giữ nguyên. */
+    model?: string;
+    /** Model/provider thật cho ImageUsage + RequestLog (khi rewrite ẩn model đích). */
+    usageModel?: string;
+    usageProviderName?: string;
+  },
+) {
   // Update image + ImageUsage trong 1 transaction; upsert giữ retry idempotent.
   const image = await prisma.$transaction(async (tx) => {
     const image = await tx.image.update({
@@ -278,7 +293,7 @@ export async function completeImageRecord(id: string, updates: { filename: strin
       data: {
         filename: updates.filename,
         mimeType: updates.mimeType,
-        model: updates.model,
+        ...(updates.model !== undefined ? { model: updates.model } : {}),
         status: "completed",
         errorMessage: null,
       },
@@ -286,7 +301,10 @@ export async function completeImageRecord(id: string, updates: { filename: strin
     });
 
     // Usage bất biến cho stats — hard-delete Image sau này không xóa dòng này.
+    // Stats admin ưu tiên model thật (usageModel) nếu caller truyền.
     const isEdit = Boolean(image.editPrompt || image.originalImageId);
+    const usageModel = updates.usageModel || image.model;
+    const usageProviderName = updates.usageProviderName || image.providerName;
     await tx.imageUsage.upsert({
       where: { imageId: image.id },
       update: {},
@@ -294,14 +312,14 @@ export async function completeImageRecord(id: string, updates: { filename: strin
         userId: image.userId,
         imageId: image.id,
         kind: isEdit ? "edit" : "generate",
-        model: image.model,
-        providerName: image.providerName,
+        model: usageModel,
+        providerName: usageProviderName,
         costVnd: image.costVnd,
         createdAt: image.createdAt,
       },
     });
 
-    await logRequestComplete(tx, { relatedImageId: image.id }, { model: image.model });
+    await logRequestComplete(tx, { relatedImageId: image.id }, { model: usageModel });
 
     return image;
   });

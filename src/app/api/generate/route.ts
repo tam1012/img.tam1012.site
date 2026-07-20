@@ -18,6 +18,10 @@ import { debitForBatch, refundForBatch, INSUFFICIENT_BALANCE } from "@/lib/walle
 import { saveImageFile } from "@/lib/storage";
 import { isGenerateRateLimited } from "@/lib/rate-limit";
 import { generateSingleImage } from "@/lib/generate-image";
+import {
+  clampResolutionForProvider,
+  resolveProviderRoute,
+} from "@/lib/provider-rewrite";
 
 export async function POST(req: NextRequest) {
   const user = await requireUser();
@@ -89,10 +93,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return handleBatch(user, provider, {
+    // Batch: resolve rewrite 1 lần, dùng chung cho mọi ảnh trong batch.
+    const route = await resolveProviderRoute(provider, "generate");
+    const actualProvider = route.actual;
+    const effectiveResolution = clampResolutionForProvider(actualProvider, resolution);
+    return handleBatch(user, route, {
       prompt: prompt.trim(),
       aspect_ratio,
-      resolution,
+      resolution: effectiveResolution,
       quality,
       clientKey,
       price,
@@ -158,9 +166,14 @@ async function existingBatchResponse(batchId: string) {
 
 async function handleBatch(
   user: UserInfo,
-  provider: ProviderConfig,
+  route: {
+    actual: ProviderConfig;
+    display: { providerId: string; providerName: string; model: string };
+    actualMeta: { providerId: string; providerName: string; model: string };
+  },
   opts: GenOptions & { count: number },
 ) {
+  const provider = route.actual;
   const batchId = randomUUID();
   const requestKey = imageIdempotencyKey(user.id, "generate", opts.clientKey);
 
@@ -173,9 +186,11 @@ async function handleBatch(
     const { record, created } = await createImageRecordOnce({
       userId: user.id,
       prompt: opts.prompt,
-      providerId: provider.id,
-      providerName: provider.name,
-      model: provider.model,
+      providerId: route.display.providerId,
+      providerName: route.display.providerName,
+      model: route.display.model,
+      logModel: route.actualMeta.model,
+      logProviderName: route.actualMeta.providerName,
       aspectRatio: opts.aspect_ratio,
       resolution: opts.resolution,
       width,
@@ -214,7 +229,9 @@ async function handleBatch(
         const record = await completeImageRecord(imageRecords[i].id, {
           filename: file.filename,
           mimeType: file.mimeType,
-          model: results[i].model,
+          model: route.display.model,
+          usageModel: route.actualMeta.model,
+          usageProviderName: route.actualMeta.providerName,
         });
         completedImages.push(record);
       } catch {

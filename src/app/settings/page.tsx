@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import AppShell from "@/components/AppShell";
+import ProviderRewritePanel from "@/components/ProviderRewritePanel";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 interface Provider {
@@ -342,6 +343,10 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+        )}
+
+        {!loading && providers.length > 0 && (
+          <ProviderRewritePanel providers={providers} />
         )}
 
         <div className="mt-8 p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-xl">

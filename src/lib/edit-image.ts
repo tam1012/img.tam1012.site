@@ -16,6 +16,10 @@ import {
 } from "@/lib/image-options";
 import { editImage, computePixelSize } from "@/lib/providers";
 import { getImagePriceVnd } from "@/lib/pricing";
+import {
+  clampResolutionForProvider,
+  resolveProviderRoute,
+} from "@/lib/provider-rewrite";
 import { debitForImage, refundForImage, INSUFFICIENT_BALANCE } from "@/lib/wallet";
 import { saveImageFile } from "@/lib/storage";
 import type { GenerateUser } from "@/lib/generate-image";
@@ -70,7 +74,7 @@ export async function editSingleImage(
 ): Promise<EditSingleResult> {
   const prompt = input.prompt?.trim() || "";
   const rawAspect = (input.aspectRatio || "auto").trim() || "auto";
-  const resolution = input.resolution || "1K";
+  let resolution = input.resolution || "1K";
   const quality = input.quality || "standard";
   const clientKey = normalizeIdempotencyKey(input.clientKey);
 
@@ -134,13 +138,18 @@ export async function editSingleImage(
     return { ok: false, status: 400, error: "Vui lòng chọn provider" };
   }
 
-  const provider = await getProviderById(input.providerId);
-  if (!provider) {
+  const requested = await getProviderById(input.providerId);
+  if (!requested) {
     return { ok: false, status: 404, error: "Provider không tồn tại" };
   }
+
+  const route = await resolveProviderRoute(requested, "edit");
+  const provider = route.actual as ProviderConfig;
+
   if (provider.api_type === "chatgpt_bridge") {
     return { ok: false, status: 400, error: "Provider ChatGPT Web Bridge chưa hỗ trợ chỉnh sửa ảnh." };
   }
+  resolution = clampResolutionForProvider(provider, resolution);
   if ((isWan27ImageModel(provider.model) || isGrokImagineImageModel(provider.model)) && resolution === "4K") {
     return { ok: false, status: 400, error: LIMITED_2K_MESSAGE };
   }
@@ -168,9 +177,11 @@ export async function editSingleImage(
     userId: user.id,
     prompt,
     editPrompt: prompt,
-    providerId: provider.id,
-    providerName: provider.name,
-    model: provider.model,
+    providerId: route.display.providerId,
+    providerName: route.display.providerName,
+    model: route.display.model,
+    logModel: route.actualMeta.model,
+    logProviderName: route.actualMeta.providerName,
     aspectRatio,
     resolution,
     width,
@@ -207,7 +218,7 @@ export async function editSingleImage(
       charged = true;
     }
 
-    const result = await editImage(provider as ProviderConfig, {
+    const result = await editImage(provider, {
       images: input.images,
       prompt,
       width,
@@ -220,7 +231,9 @@ export async function editSingleImage(
     const record = await completeImageRecord(image.id, {
       filename: file.filename,
       mimeType: file.mimeType,
-      model: result.model,
+      model: route.display.model,
+      usageModel: route.actualMeta.model,
+      usageProviderName: route.actualMeta.providerName,
     });
 
     return { ok: true, image: record, chargedVnd: charged ? price : 0, reused: false };
