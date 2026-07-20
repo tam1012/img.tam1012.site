@@ -1,29 +1,20 @@
 /**
- * Rate limit + retry cho model Gemini image đi qua Vertex AI (qua CPA).
+ * Rate limit + retry cho mọi model tạo/sửa ảnh (token-bucket per model).
  *
- * Lý do: Vertex AI quota `generate_content_image_gen_per_project_per_base_model`
- * = 2 request/phút cho mỗi cặp (project, model). Anh có 3 project Vertex →
- * pool ~6 ảnh/phút cho mỗi model. Vượt mức này Google trả 429 "Resource has
- * been exhausted" liên tục.
+ * - gemini-3-pro-image, gemini-2.5-flash-image (Vertex qua CPA): mặc định 5 RPM
+ *   (pool ~2 RPM/project × vài project; chừa buffer). Env: VERTEX_IMAGE_RPM.
+ * - Mọi model ảnh khác (gồm gemini-3.1-flash-image Antigravity, Grok, GPT Image,
+ *   Flow, bridge...): mặc định 8 RPM. Env: DEFAULT_IMAGE_RPM
+ *   (alias: ANTIGRAVITY_IMAGE_RPM nếu DEFAULT_IMAGE_RPM chưa set).
  *
- * Lớp 1 (token-bucket per model): giữ nhịp đầu vào ≤ N RPM để không vượt pool.
- *   - Còn token → gọi ngay.
- *   - Hết token → xếp hàng chờ tới lượt (có timeout).
- * Lớp 2 (retry backoff): nếu vẫn vấp 429/exhausted/cooling down → đợi rồi thử lại.
- *
- * Chỉ áp dụng cho model trong THROTTLED_MODELS (theo chỉ định của Anh).
- * Mọi model khác gọi thẳng, giữ behavior cũ.
+ * Lớp 1: token-bucket 60s — hết slot thì xếp hàng (timeout).
+ * Lớp 2: gặp 429/exhausted/cooling → backoff rồi retry.
  */
 
-// 2 model Anh chỉ định đi qua Vertex AI (qua CPA).
-const THROTTLED_MODELS = new Set<string>([
+const VERTEX_MODELS = new Set<string>([
   "gemini-3-pro-image",
   "gemini-2.5-flash-image",
 ]);
-
-function isThrottledModel(model: string): boolean {
-  return THROTTLED_MODELS.has(model);
-}
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -32,18 +23,26 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-// Pool Vertex ~6 ảnh/phút/model (3 project × 2 RPM). Chừa 1 buffer an toàn.
+// Vertex: giữ nguyên như trước (mặc định 5).
 const VERTEX_IMAGE_RPM = envInt("VERTEX_IMAGE_RPM", 5);
+// Các model còn lại: 8 RPM (Anh chốt 2026-07-21).
+const DEFAULT_IMAGE_RPM = envInt(
+  "DEFAULT_IMAGE_RPM",
+  envInt("ANTIGRAVITY_IMAGE_RPM", 8),
+);
 const VERTEX_IMAGE_QUEUE_TIMEOUT_MS = envInt("VERTEX_IMAGE_QUEUE_TIMEOUT_MS", 30_000);
 const VERTEX_IMAGE_RETRY_DELAY_MS = envInt("VERTEX_IMAGE_RETRY_DELAY_MS", 25_000);
 const VERTEX_IMAGE_RETRY_MAX = envInt("VERTEX_IMAGE_RETRY_MAX", 2);
 
 const WINDOW_MS = 60_000;
 
+function rpmForModel(model: string): number {
+  if (VERTEX_MODELS.has(model)) return VERTEX_IMAGE_RPM;
+  return DEFAULT_IMAGE_RPM;
+}
+
 type Bucket = {
-  // Mốc thời gian (ms) của các request đã được cấp token trong 60s qua.
   stamps: number[];
-  // Hàng đợi các waiter đang chờ token.
   waiters: Array<{ resolve: () => void; reject: (e: Error) => void; deadline: number }>;
 };
 
@@ -69,23 +68,22 @@ function pruneOld(b: Bucket, now: number): void {
   }
 }
 
-function tryAcquire(b: Bucket, now: number): boolean {
+function tryAcquire(b: Bucket, now: number, rpm: number): boolean {
   pruneOld(b, now);
-  if (b.stamps.length < VERTEX_IMAGE_RPM) {
+  if (b.stamps.length < rpm) {
     b.stamps.push(now);
     return true;
   }
   return false;
 }
 
-function pumpWaiters(b: Bucket): void {
+function pumpWaiters(b: Bucket, rpm: number): void {
   const now = nowMs();
-  // Tự hủy waiter quá deadline.
   b.waiters = b.waiters.filter((w) => {
     if (now >= w.deadline) {
       w.reject(
         new Error(
-          "Hệ thống đang xử lý nhiều yêu cầu ảnh Vertex AI, vui lòng thử lại sau ít phút.",
+          "Hệ thống đang xử lý nhiều yêu cầu ảnh, vui lòng thử lại sau ít phút.",
         ),
       );
       return false;
@@ -95,16 +93,16 @@ function pumpWaiters(b: Bucket): void {
 
   while (b.waiters.length > 0) {
     pruneOld(b, now);
-    if (b.stamps.length >= VERTEX_IMAGE_RPM) break;
+    if (b.stamps.length >= rpm) break;
     const w = b.waiters.shift()!;
     b.stamps.push(nowMs());
     w.resolve();
   }
 }
 
-function waitForToken(model: string, b: Bucket): Promise<void> {
+function waitForToken(model: string, b: Bucket, rpm: number): Promise<void> {
   const now = nowMs();
-  if (tryAcquire(b, now)) return Promise.resolve();
+  if (tryAcquire(b, now, rpm)) return Promise.resolve();
 
   return new Promise<void>((resolve, reject) => {
     const deadline = now + VERTEX_IMAGE_QUEUE_TIMEOUT_MS;
@@ -118,6 +116,7 @@ function isRateLimitError(message: string): boolean {
     m.includes("429") ||
     m.includes("exhausted") ||
     m.includes("cooling down") ||
+    m.includes("model_cooldown") ||
     m.includes("auth_unavailable") ||
     m.includes("resource has been exhausted")
   );
@@ -131,7 +130,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     }, ms);
     const onAbort = () => {
       cleanup();
-      reject(new Error("Đã hủy chờ retry Vertex AI."));
+      reject(new Error("Đã hủy chờ retry tạo ảnh."));
     };
     const cleanup = () => {
       clearTimeout(t);
@@ -143,25 +142,21 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * Bọc lời gọi provider: acquire token (hoặc xếp hàng) → gọi fn → nếu gặp 429
- * thì backoff rồi retry. Chỉ áp dụng cho model trong THROTTLED_MODELS.
- * Model khác: gọi thẳng fn, không limiter, không retry.
+ * thì backoff rồi retry. Áp dụng mọi model ảnh; RPM theo rpmForModel().
  */
 export async function withVertexImageThrottle<T>(
   model: string,
   fn: () => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  if (!isThrottledModel(model)) {
-    return fn();
-  }
-
-  const b = getBucket(model);
+  const rpm = rpmForModel(model || "unknown");
+  const bucketKey = model || "unknown";
+  const b = getBucket(bucketKey);
   let attempt = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    await waitForToken(model, b);
-    // Sau khi được cấp token, cố gắng bơm cho waiter kế tiếp (nếu còn slot).
-    pumpWaiters(b);
+    await waitForToken(bucketKey, b, rpm);
+    pumpWaiters(b, rpm);
 
     try {
       return await fn();
@@ -172,7 +167,7 @@ export async function withVertexImageThrottle<T>(
         throw e;
       }
       console.warn(
-        `[vertex-throttle] model=${model} 429 detected, retry ${attempt}/${VERTEX_IMAGE_RETRY_MAX} after ${VERTEX_IMAGE_RETRY_DELAY_MS}ms`,
+        `[image-throttle] model=${bucketKey} rpm=${rpm} 429 detected, retry ${attempt}/${VERTEX_IMAGE_RETRY_MAX} after ${VERTEX_IMAGE_RETRY_DELAY_MS}ms`,
       );
       await sleep(VERTEX_IMAGE_RETRY_DELAY_MS, signal);
     }

@@ -193,44 +193,48 @@ export async function editImage(config: ProviderConfig, params: EditParams): Pro
 
 async function flowGenerate(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage[]> {
   const count = Math.min(Math.max(params.count || 1, 1), 4);
-  const images = await generateFlowImageViaRoute({
-    prompt: params.prompt,
-    model: config.model,
-    aspectRatio: params.aspectRatio,
-    width: params.width,
-    height: params.height,
-    n: count,
+  return withVertexImageThrottle(config.model, async () => {
+    const images = await generateFlowImageViaRoute({
+      prompt: params.prompt,
+      model: config.model,
+      aspectRatio: params.aspectRatio,
+      width: params.width,
+      height: params.height,
+      n: count,
+    });
+    return images.map((img) => ({
+      data: Buffer.from(img.b64_json, "base64"),
+      mimeType: "image/png",
+      model: config.model,
+    }));
   });
-  return images.map((img) => ({
-    data: Buffer.from(img.b64_json, "base64"),
-    mimeType: "image/png",
-    model: config.model,
-  }));
 }
 
 async function flowEdit(config: ProviderConfig, params: EditParams): Promise<GeneratedImage> {
   if (!params.images?.length) {
     throw new Error("Cần ít nhất 1 ảnh để chỉnh sửa với Google Flow.");
   }
-  const images = await editFlowImageViaRoute({
-    prompt: params.prompt,
-    model: config.model,
-    aspectRatio: params.aspectRatio,
-    width: params.width,
-    height: params.height,
-    n: 1,
-    images: params.images.map((img) => ({
-      buffer: img.buffer,
-      mimeType: img.mimeType || "image/png",
-    })),
+  return withVertexImageThrottle(config.model, async () => {
+    const images = await editFlowImageViaRoute({
+      prompt: params.prompt,
+      model: config.model,
+      aspectRatio: params.aspectRatio,
+      width: params.width,
+      height: params.height,
+      n: 1,
+      images: params.images.map((img) => ({
+        buffer: img.buffer,
+        mimeType: img.mimeType || "image/png",
+      })),
+    });
+    const first = images[0];
+    if (!first?.b64_json) throw new Error("FLOW_UPSTREAM_EMPTY");
+    return {
+      data: Buffer.from(first.b64_json, "base64"),
+      mimeType: "image/png",
+      model: config.model,
+    };
   });
-  const first = images[0];
-  if (!first?.b64_json) throw new Error("FLOW_UPSTREAM_EMPTY");
-  return {
-    data: Buffer.from(first.b64_json, "base64"),
-    mimeType: "image/png",
-    model: config.model,
-  };
 }
 
 // ── ChatGPT Web Bridge ────────────────────────────────────
@@ -263,57 +267,59 @@ async function bridgeGenerate(config: ProviderConfig, params: GenerateParams): P
 }
 
 async function bridgeGenerateOne(config: ProviderConfig, params: GenerateParams, index: number): Promise<GeneratedImage> {
-  const baseUrl = resolveBridgeBaseUrl(config);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 600_000);
+  return withVertexImageThrottle(config.model, async () => {
+    const baseUrl = resolveBridgeBaseUrl(config);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 600_000);
 
-  try {
-    const res = await fetch(`${baseUrl}/api/generate`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${config.api_key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        prompt: params.prompt,
-        width: params.width,
-        height: params.height,
-        aspect_ratio: params.aspectRatio,
-        resolution: params.resolution,
-        quality: params.quality,
-        request_id: `img-studio-${randomUUID()}-${index}`,
-      }),
-      signal: controller.signal,
-    });
+    try {
+      const res = await fetch(`${baseUrl}/api/generate`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${config.api_key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: params.prompt,
+          width: params.width,
+          height: params.height,
+          aspect_ratio: params.aspectRatio,
+          resolution: params.resolution,
+          quality: params.quality,
+          request_id: `img-studio-${randomUUID()}-${index}`,
+        }),
+        signal: controller.signal,
+      });
 
-    const contentType = res.headers.get("content-type") || "";
-    if (!res.ok) {
-      let message = `Bridge trả lỗi HTTP ${res.status}`;
-      if (contentType.includes("application/json")) {
-        const data = await res.json().catch(() => null);
-        if (data?.error) message = `${data.code ? `${data.code}: ` : ""}${data.error}`;
+      const contentType = res.headers.get("content-type") || "";
+      if (!res.ok) {
+        let message = `Bridge trả lỗi HTTP ${res.status}`;
+        if (contentType.includes("application/json")) {
+          const data = await res.json().catch(() => null);
+          if (data?.error) message = `${data.code ? `${data.code}: ` : ""}${data.error}`;
+        }
+        throw new Error(message);
       }
-      throw new Error(message);
-    }
 
-    if (!contentType.startsWith("image/")) {
-      throw new Error(`Bridge không trả về ảnh (content-type: ${contentType || "unknown"})`);
-    }
+      if (!contentType.startsWith("image/")) {
+        throw new Error(`Bridge không trả về ảnh (content-type: ${contentType || "unknown"})`);
+      }
 
-    const buffer = Buffer.from(await res.arrayBuffer());
-    if (buffer.length < 1024) {
-      throw new Error("Bridge trả về ảnh quá nhỏ hoặc rỗng");
-    }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length < 1024) {
+        throw new Error("Bridge trả về ảnh quá nhỏ hoặc rỗng");
+      }
 
-    return { data: buffer, mimeType: contentType.split(";")[0], model: config.model };
-  } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Bridge tạo ảnh quá thời gian chờ");
+      return { data: buffer, mimeType: contentType.split(";")[0], model: config.model };
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error("Bridge tạo ảnh quá thời gian chờ");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
     }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
+  });
 }
 
 // ── OpenAI Compatible ─────────────────────────────────────
@@ -352,21 +358,27 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
 
   try {
     const prefix = buildImageInstructionPrefix(params);
-    const response = await client.images.generate({
-      model: config.model,
-      prompt: `${prefix}${params.prompt}`,
-      size: `${params.width}x${params.height}` as "1024x1024",
-      quality: params.quality === "high" ? "high" : "medium",
-      n: count,
+    return await withVertexImageThrottle(config.model, async () => {
+      const response = await client.images.generate({
+        model: config.model,
+        prompt: `${prefix}${params.prompt}`,
+        size: `${params.width}x${params.height}` as "1024x1024",
+        quality: params.quality === "high" ? "high" : "medium",
+        n: count,
+      });
+      return extractOpenAIImages(response, config.model);
     });
-    return extractOpenAIImages(response, config.model);
   } catch (err: unknown) {
     if (err instanceof OpenAI.APIError && err.status === 400) {
       if (!isContentPolicyError(err)) {
         try {
           const results: GeneratedImage[] = [];
           for (let i = 0; i < count; i++) {
-            results.push(await chatCompletionsGenerate(client, config.model, params));
+            results.push(
+              await withVertexImageThrottle(config.model, () =>
+                chatCompletionsGenerate(client, config.model, params),
+              ),
+            );
           }
           return results;
         } catch {
@@ -390,16 +402,19 @@ async function openaiGenerateByLoop(
 
   for (let i = 0; i < count; i++) {
     try {
-      const response = await client.images.generate({
-        model,
-        prompt: `${prefix}${params.prompt}`,
-        size: `${params.width}x${params.height}` as "1024x1024",
-        quality: params.quality === "high" ? "high" : "medium",
-        n: 1,
+      const image = await withVertexImageThrottle(model, async () => {
+        const response = await client.images.generate({
+          model,
+          prompt: `${prefix}${params.prompt}`,
+          size: `${params.width}x${params.height}` as "1024x1024",
+          quality: params.quality === "high" ? "high" : "medium",
+          n: 1,
+        });
+        const images = await extractOpenAIImages(response, model);
+        if (images.length === 0) throw new Error("Provider không trả về ảnh");
+        return images[0];
       });
-      const images = await extractOpenAIImages(response, model);
-      if (images.length === 0) throw new Error("Provider không trả về ảnh");
-      results.push(images[0]);
+      results.push(image);
     } catch (err: unknown) {
       lastError = err;
       // Có ảnh rồi thì trả partial; batch route sẽ refund phần thiếu.
@@ -443,14 +458,16 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
       params.images.map((img) => toFile(img.buffer, "image.png", { type: "image/png" }))
     );
     const prefix = buildImageInstructionPrefix(params);
-    const response = await client.images.edit({
-      model: config.model,
-      image: files.length === 1 ? files[0] : files,
-      prompt: `${prefix}${params.prompt}`,
-      size: `${params.width}x${params.height}` as "1024x1024",
-      quality: params.quality === "high" ? "high" : "medium",
+    return await withVertexImageThrottle(config.model, async () => {
+      const response = await client.images.edit({
+        model: config.model,
+        image: files.length === 1 ? files[0] : files,
+        prompt: `${prefix}${params.prompt}`,
+        size: `${params.width}x${params.height}` as "1024x1024",
+        quality: params.quality === "high" ? "high" : "medium",
+      });
+      return extractOpenAIImage(response, config.model);
     });
-    return extractOpenAIImage(response, config.model);
   } catch (err: unknown) {
     if (err instanceof OpenAI.APIError && err.status === 400) {
       // Lỗi content policy → throw thẳng, không fallback, không gợi ý thừa
@@ -462,7 +479,9 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
       // Model không hỗ trợ images.edit (vd Gemini qua proxy, Imagen...)
       // → thử fallback chat completions (Gemini multimodal hoạt động qua đây)
       try {
-        return await chatCompletionsEdit(client, config.model, params);
+        return await withVertexImageThrottle(config.model, () =>
+          chatCompletionsEdit(client, config.model, params),
+        );
       } catch (fallbackErr: unknown) {
         const fallbackMessage = errorMessage(fallbackErr);
         // Fallback cũng thất bại → hiển thị cả lỗi images.edit và lỗi chat thật để không che nguyên nhân.
@@ -476,22 +495,24 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
 }
 
 async function grokDirectGenerate(model: string, params: GenerateParams): Promise<GeneratedImage[]> {
-  const grokRes = params.resolution === "4K" ? "2k" : params.resolution.toLowerCase();
-  const prefix = buildImageInstructionPrefix(params);
-  const { value, account } = await runWithXaiAccount(xaiAuthPool, async (selected) => {
-    const client = new OpenAI({ apiKey: selected.apiKey, baseURL: XAI_BASE_URL });
-    const response = await client.images.generate({
-      model,
-      prompt: `${prefix}${params.prompt}`,
-      n: params.count || 1,
-      // @ts-expect-error - xAI dùng aspect_ratio/resolution, OpenAI types không có
-      aspect_ratio: params.aspectRatio,
-      resolution: grokRes,
+  return withVertexImageThrottle(model, async () => {
+    const grokRes = params.resolution === "4K" ? "2k" : params.resolution.toLowerCase();
+    const prefix = buildImageInstructionPrefix(params);
+    const { value, account } = await runWithXaiAccount(xaiAuthPool, async (selected) => {
+      const client = new OpenAI({ apiKey: selected.apiKey, baseURL: XAI_BASE_URL });
+      const response = await client.images.generate({
+        model,
+        prompt: `${prefix}${params.prompt}`,
+        n: params.count || 1,
+        // @ts-expect-error - xAI dùng aspect_ratio/resolution, OpenAI types không có
+        aspect_ratio: params.aspectRatio,
+        resolution: grokRes,
+      });
+      return extractOpenAIImages(response, model);
     });
-    return extractOpenAIImages(response, model);
+    console.log(`[xAI image] generated model=${model} account=${account.id} count=${value.length}`);
+    return value;
   });
-  console.log(`[xAI image] generated model=${model} account=${account.id} count=${value.length}`);
-  return value;
 }
 
 async function grokDirectEdit(model: string, params: EditParams): Promise<GeneratedImage> {
@@ -499,46 +520,48 @@ async function grokDirectEdit(model: string, params: EditParams): Promise<Genera
   const source = params.images[0];
   if (!source) throw new Error("Thiếu ảnh nguồn để chỉnh sửa với Grok");
 
-  const grokRes = params.resolution === "4K" ? "2k" : params.resolution.toLowerCase();
-  const prefix = buildImageInstructionPrefix(params);
-  const mimeType = source.mimeType || "image/png";
-  const body = {
-    model,
-    prompt: `${prefix}${params.prompt}`,
-    image: {
-      url: `data:${mimeType};base64,${source.buffer.toString("base64")}`,
-      type: "image_url" as const,
-    },
-    aspect_ratio: params.aspectRatio,
-    resolution: grokRes,
-  };
-
-  const { value, account } = await runWithXaiAccount(xaiAuthPool, async (selected) => {
-    const res = await fetch(`${XAI_BASE_URL}/images/edits`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${selected.apiKey}`,
+  return withVertexImageThrottle(model, async () => {
+    const grokRes = params.resolution === "4K" ? "2k" : params.resolution.toLowerCase();
+    const prefix = buildImageInstructionPrefix(params);
+    const mimeType = source.mimeType || "image/png";
+    const body = {
+      model,
+      prompt: `${prefix}${params.prompt}`,
+      image: {
+        url: `data:${mimeType};base64,${source.buffer.toString("base64")}`,
+        type: "image_url" as const,
       },
-      body: JSON.stringify(body),
+      aspect_ratio: params.aspectRatio,
+      resolution: grokRes,
+    };
+
+    const { value, account } = await runWithXaiAccount(xaiAuthPool, async (selected) => {
+      const res = await fetch(`${XAI_BASE_URL}/images/edits`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${selected.apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        const msg = err?.error?.message || err?.error || err?.message || `HTTP ${res.status}`;
+        console.error(`[xAI image] edit failed account=${selected.id} status=${res.status}`);
+        // Gắn status để runWithXaiAccount nhận 401/429/403 và xoay account khi cần.
+        throw Object.assign(
+          new Error(`xAI edit: ${typeof msg === "string" ? msg : JSON.stringify(msg)}`),
+          { status: res.status },
+        );
+      }
+
+      const data = await res.json();
+      return extractOpenAIImage(data as OpenAI.Images.ImagesResponse, model);
     });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => null);
-      const msg = err?.error?.message || err?.error || err?.message || `HTTP ${res.status}`;
-      console.error(`[xAI image] edit failed account=${selected.id} status=${res.status}`);
-      // Gắn status để runWithXaiAccount nhận 401/429/403 và xoay account khi cần.
-      throw Object.assign(
-        new Error(`xAI edit: ${typeof msg === "string" ? msg : JSON.stringify(msg)}`),
-        { status: res.status },
-      );
-    }
-
-    const data = await res.json();
-    return extractOpenAIImage(data as OpenAI.Images.ImagesResponse, model);
+    console.log(`[xAI image] edited model=${model} account=${account.id}`);
+    return value;
   });
-  console.log(`[xAI image] edited model=${model} account=${account.id}`);
-  return value;
 }
 
 async function chatCompletionsGenerate(client: OpenAI, model: string, params: GenerateParams): Promise<GeneratedImage> {
@@ -688,18 +711,22 @@ async function vertexGenerate(config: ProviderConfig, params: GenerateParams): P
   const count = params.count || 1;
   const results: GeneratedImage[] = [];
   for (let i = 0; i < count; i++) {
-    const response = await ai.models.generateContent({
-      model: config.model,
-      contents: params.prompt,
-      config: {
-        responseModalities: ["IMAGE", "TEXT"],
-        imageConfig: {
-          aspectRatio: params.aspectRatio,
-          imageSize: params.resolution,
-        },
-      },
-    });
-    results.push(extractNewGeminiImage(response, config.model));
+    results.push(
+      await withVertexImageThrottle(config.model, async () => {
+        const response = await ai.models.generateContent({
+          model: config.model,
+          contents: params.prompt,
+          config: {
+            responseModalities: ["IMAGE", "TEXT"],
+            imageConfig: {
+              aspectRatio: params.aspectRatio,
+              imageSize: params.resolution,
+            },
+          },
+        });
+        return extractNewGeminiImage(response, config.model);
+      }),
+    );
   }
   return results;
 }
@@ -712,28 +739,10 @@ async function vertexEdit(config: ProviderConfig, params: EditParams): Promise<G
     })),
     { text: params.prompt },
   ];
-  const response = await ai.models.generateContent({
-    model: config.model,
-    contents: parts,
-    config: {
-      responseModalities: ["IMAGE", "TEXT"],
-      imageConfig: {
-        aspectRatio: params.aspectRatio,
-        imageSize: params.resolution,
-      },
-    },
-  });
-  return extractNewGeminiImage(response, config.model);
-}
-
-async function geminiGenerate(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage[]> {
-  const ai = new GoogleGenAI({ apiKey: config.api_key });
-  const count = params.count || 1;
-  const results: GeneratedImage[] = [];
-  for (let i = 0; i < count; i++) {
+  return withVertexImageThrottle(config.model, async () => {
     const response = await ai.models.generateContent({
       model: config.model,
-      contents: params.prompt,
+      contents: parts,
       config: {
         responseModalities: ["IMAGE", "TEXT"],
         imageConfig: {
@@ -742,7 +751,31 @@ async function geminiGenerate(config: ProviderConfig, params: GenerateParams): P
         },
       },
     });
-    results.push(extractNewGeminiImage(response, config.model));
+    return extractNewGeminiImage(response, config.model);
+  });
+}
+
+async function geminiGenerate(config: ProviderConfig, params: GenerateParams): Promise<GeneratedImage[]> {
+  const ai = new GoogleGenAI({ apiKey: config.api_key });
+  const count = params.count || 1;
+  const results: GeneratedImage[] = [];
+  for (let i = 0; i < count; i++) {
+    results.push(
+      await withVertexImageThrottle(config.model, async () => {
+        const response = await ai.models.generateContent({
+          model: config.model,
+          contents: params.prompt,
+          config: {
+            responseModalities: ["IMAGE", "TEXT"],
+            imageConfig: {
+              aspectRatio: params.aspectRatio,
+              imageSize: params.resolution,
+            },
+          },
+        });
+        return extractNewGeminiImage(response, config.model);
+      }),
+    );
   }
   return results;
 }
@@ -755,18 +788,20 @@ async function geminiEdit(config: ProviderConfig, params: EditParams): Promise<G
     })),
     { text: params.prompt },
   ];
-  const response = await ai.models.generateContent({
-    model: config.model,
-    contents: parts,
-    config: {
-      responseModalities: ["IMAGE", "TEXT"],
-      imageConfig: {
-        aspectRatio: params.aspectRatio,
-        imageSize: params.resolution,
+  return withVertexImageThrottle(config.model, async () => {
+    const response = await ai.models.generateContent({
+      model: config.model,
+      contents: parts,
+      config: {
+        responseModalities: ["IMAGE", "TEXT"],
+        imageConfig: {
+          aspectRatio: params.aspectRatio,
+          imageSize: params.resolution,
+        },
       },
-    },
+    });
+    return extractNewGeminiImage(response, config.model);
   });
-  return extractNewGeminiImage(response, config.model);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
