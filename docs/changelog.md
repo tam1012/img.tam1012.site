@@ -1,5 +1,12 @@
 # Changelog — IMG Studio
 
+## 2026-07-20 — Flow video: poll parser + timeout 20p + cứu file khi bridge đã xong
+
+- Bridge poll: không return sớm khi payload 200 rỗng; thử shape tiếp; 403 poll không còn = reauth ngay; ưu tiên payload `clientContext + operation.name`.
+- Bridge poller: timeout mặc định 20 phút (trước 10p), không tick chồng, không poll song song cùng job.
+- GET job failed trả `errorMessage` chi tiết (HIGH_TRAFFIC...) thay vì chỉ `FLOW_UPSTREAM_REJECTED`.
+- App: khi timeout / done nhưng content chậm, thử tải mp4 lần cuối nếu bridge đã có file — giảm fail oan khi bridge complete sau app.
+
 ## 2026-07-20 — google-media-bridge: keepalive không reauth oan vì navigation race
 
 - Keepalive trước đây bắt mọi exception (kể cả `Execution context was destroyed / navigation`) → gắn `reauth_required` vĩnh viễn; flow-03/04/05 từng rơi pool dù session Google còn sống.

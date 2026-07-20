@@ -248,11 +248,17 @@ export function registerVideoRoutes(
       return { request_id: job.id, status: "done", progress: 100 };
     }
     if (job.status === "failed") {
+      // Ưu tiên errorMessage chi tiết (HIGH_TRAFFIC, DANGER_FILTER...) — app hiển thị/log được.
+      const detail =
+        (job.errorMessage && job.errorMessage.trim()) ||
+        job.errorCode ||
+        "FLOW_UPSTREAM_REJECTED";
       return {
         request_id: job.id,
         status: "failed",
         progress: job.progress,
-        error: job.errorCode || "FLOW_UPSTREAM_REJECTED",
+        error: detail,
+        code: job.errorCode || "FLOW_UPSTREAM_REJECTED",
       };
     }
     return { request_id: job.id, status: "pending", progress: job.progress };

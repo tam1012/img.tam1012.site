@@ -66,7 +66,7 @@ describe("job poller", () => {
     db.close();
   });
 
-  it("resets reauth streak after a successful poll", async () => {
+  it("skips overlapping tick while previous poll is in flight", async () => {
     const db = openDatabase(":memory:");
     db.prepare(
       `INSERT INTO accounts (id, alias, encrypted_storage_state, status, active_leases, created_at, updated_at)
@@ -75,24 +75,35 @@ describe("job poller", () => {
     const jobs = createJobRepository(db);
     db.prepare(
       `INSERT INTO jobs (id, idempotency_key, kind, status, account_id, progress, created_at, updated_at)
-       VALUES ('job-s', 'idem-s', 'text_video', 'active', 'acc-1', 60, ?, ?)`,
+       VALUES ('job-slow', 'idem-slow', 'text_video', 'active', 'acc-1', 10, ?, ?)`,
     ).run(new Date().toISOString(), new Date().toISOString());
 
-    let calls = 0;
+    let releases = 0;
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    let resolvePoll: (() => void) | undefined;
     const poller = createJobPoller({
       jobs,
-      timeoutMs: 10 * 60_000,
-      maxConsecutiveReauth: 3,
-      // Lỗi, lỗi, thành công, lỗi, lỗi — chưa đủ 3 lần LIÊN TIẾP nên không được fail.
+      timeoutMs: 20 * 60_000,
       poll: async () => {
-        calls += 1;
-        if (calls === 3) return;
-        throw new Error("FLOW_REAUTH_REQUIRED");
+        concurrent += 1;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        await new Promise<void>((resolve) => {
+          resolvePoll = resolve;
+        });
+        concurrent -= 1;
+        releases += 1;
       },
     });
 
-    for (let i = 0; i < 5; i++) await poller.tick();
-    expect(jobs.get("job-s")?.status).not.toBe("failed");
+    const first = poller.tick();
+    // Trong lúc poll còn treo, tick thứ 2 phải no-op.
+    await poller.tick();
+    expect(maxConcurrent).toBe(1);
+    expect(resolvePoll).toBeTypeOf("function");
+    resolvePoll!();
+    await first;
+    expect(releases).toBe(1);
     await poller.stop();
     db.close();
   });

@@ -392,24 +392,55 @@ async function generateFlowVideo(input: GenerateVideoInput, filePath: string): P
 
   const startTime = Date.now();
   // Omni Flash / Flow video qua proxy hay >10 phút (render ACTIVE + tải mp4).
-  // Job thật 21:48 VN đã SUCCESSFUL ~10.5p nhưng app timeout 10p → fail oan + refund.
+  // Job thật từng SUCCESSFUL ~10.5p trong khi app timeout 10p → fail oan + refund.
+  // Đồng bộ bridge poller 20p; nếu bridge đã done mà app vừa chạm timeout thì cứu file.
   const FLOW_VIDEO_TIMEOUT_MS = 20 * 60_000;
+
+  async function tryDownloadDone(elapsed: number): Promise<boolean> {
+    try {
+      const videoData = await downloadFlowVideoContentViaRoute({ requestId: created.request_id });
+      if (!videoData.length) return false;
+      fs.writeFileSync(filePath, videoData);
+      console.log(`[Flow video] success elapsed=${elapsed}s bytes=${videoData.length}`);
+      return true;
+    } catch (err) {
+      console.warn(
+        `[Flow video] download not ready request_id=${created.request_id}: ${
+          err instanceof Error ? err.message : "unknown"
+        }`,
+      );
+      return false;
+    }
+  }
+
   while (true) {
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
     if (Date.now() - startTime > FLOW_VIDEO_TIMEOUT_MS) {
-      console.error(`[Flow video] timeout after ${Math.round((Date.now() - startTime) / 1000)}s request_id=${created.request_id}`);
+      // Cứu lần cuối: bridge đôi khi complete đúng lúc app timeout (đã thấy lệch 1–2s + file mp4 còn).
+      const poll = await pollFlowVideoViaRoute({ requestId: created.request_id }).catch(() => null);
+      if (poll?.status === "done" || poll?.status === "pending") {
+        if (await tryDownloadDone(elapsed)) return;
+      }
+      if (poll?.status === "failed") {
+        throw new Error(`Flow video failed: ${poll.error || "unknown"}`);
+      }
+      console.error(
+        `[Flow video] timeout after ${elapsed}s request_id=${created.request_id} bridge=${poll?.status ?? "unknown"} progress=${poll?.progress ?? "?"}`,
+      );
       throw new Error("Tạo video quá thời gian chờ (20 phút)");
     }
     await new Promise((r) => setTimeout(r, 5_000));
 
     const poll = await pollFlowVideoViaRoute({ requestId: created.request_id });
-    const elapsed = Math.round((Date.now() - startTime) / 1000);
-    console.log(`[Flow video] poll status=${poll.status} progress=${poll.progress} elapsed=${elapsed}s`);
+    const nowElapsed = Math.round((Date.now() - startTime) / 1000);
+    console.log(
+      `[Flow video] poll status=${poll.status} progress=${poll.progress} elapsed=${nowElapsed}s`,
+    );
 
     if (poll.status === "done") {
-      const videoData = await downloadFlowVideoContentViaRoute({ requestId: created.request_id });
-      fs.writeFileSync(filePath, videoData);
-      console.log(`[Flow video] success elapsed=${elapsed}s bytes=${videoData.length}`);
-      return;
+      if (await tryDownloadDone(nowElapsed)) return;
+      // done nhưng content 404 tạm thời — chờ nhịp sau, đừng fail ngay.
+      continue;
     }
     if (poll.status === "failed") {
       throw new Error(`Flow video failed: ${poll.error || "unknown"}`);

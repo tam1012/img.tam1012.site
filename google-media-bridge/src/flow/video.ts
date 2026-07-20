@@ -295,38 +295,207 @@ export type PollVideoResult =
   | { status: "done"; videoUrl: string; progress: number }
   | { status: "failed"; error: string; progress: number };
 
+function collectHttpUrls(node: unknown, acc: string[] = [], depth = 0): string[] {
+  if (depth > 8 || node == null) return acc;
+  if (typeof node === "string") {
+    if (/^https?:\/\//i.test(node)) acc.push(node);
+    return acc;
+  }
+  if (Array.isArray(node)) {
+    for (const item of node) collectHttpUrls(item, acc, depth + 1);
+    return acc;
+  }
+  if (typeof node === "object") {
+    for (const v of Object.values(node as Record<string, unknown>)) {
+      collectHttpUrls(v, acc, depth + 1);
+    }
+  }
+  return acc;
+}
+
+function pickVideoUrl(urls: string[]): string {
+  return (
+    urls.find((u) => /fife|googlevideo|videoplayback|flow-content|\.mp4(?:\?|$)|mh\//i.test(u)) ||
+    urls.find((u) => /\.mp4/i.test(u)) ||
+    ""
+  );
+}
+
+/**
+ * Parse one status-check JSON body into a poll result.
+ * Returns null when the body is empty/wrong shape so caller can try another payload.
+ * (Bug cũ: HTTP 200 + operations rỗng → return pending ngay, bỏ qua payload đúng.)
+ */
+export function interpretPollResponse(raw: string): PollVideoResult | null {
+  let parsed: {
+    operations?: Array<Record<string, unknown>>;
+    error?: { message?: string; status?: string };
+  };
+  try {
+    parsed = JSON.parse(raw) as typeof parsed;
+  } catch {
+    return null;
+  }
+
+  // Top-level API error (hiếm, thường đã bị HTTP non-2xx).
+  if (parsed.error?.message && !parsed.operations?.length) {
+    return {
+      status: "failed",
+      error: String(parsed.error.message).slice(0, 160),
+      progress: 100,
+    };
+  }
+
+  const op = parsed.operations?.[0];
+  if (!op || typeof op !== "object") return null;
+
+  const nested = (op.operation && typeof op.operation === "object"
+    ? (op.operation as Record<string, unknown>)
+    : undefined) as
+    | {
+        done?: boolean;
+        error?: { message?: string };
+        response?: unknown;
+        metadata?: { status?: string; video?: { fifeUrl?: string; url?: string } };
+      }
+    | undefined;
+
+  const status = String(
+    op.status ||
+      (op.metadata as { status?: string } | undefined)?.status ||
+      nested?.metadata?.status ||
+      "",
+  ).toUpperCase();
+  const done = Boolean(op.done || nested?.done);
+  const errMsg =
+    (op.error as { message?: string } | undefined)?.message || nested?.error?.message || "";
+
+  const response = (op.response || nested?.response || {}) as {
+    video?: { fifeUrl?: string; url?: string };
+    fifeUrl?: string;
+    generatedVideos?: Array<{ fifeUrl?: string; url?: string }>;
+    media?: Array<{ video?: { fifeUrl?: string }; fifeUrl?: string; status?: string }>;
+  };
+  const metadataVideo =
+    nested?.metadata?.video ||
+    (op.metadata as { video?: { fifeUrl?: string; url?: string } } | undefined)?.video;
+
+  const directUrl =
+    metadataVideo?.fifeUrl ||
+    metadataVideo?.url ||
+    response.video?.fifeUrl ||
+    response.video?.url ||
+    response.fifeUrl ||
+    response.generatedVideos?.[0]?.fifeUrl ||
+    response.generatedVideos?.[0]?.url ||
+    response.media?.[0]?.video?.fifeUrl ||
+    response.media?.[0]?.fifeUrl ||
+    "";
+
+  const foundUrl = directUrl || pickVideoUrl(collectHttpUrls(parsed));
+
+  // Fail terminal: failed status, or error message with fail/error/done.
+  if (
+    status.includes("MEDIA_GENERATION_STATUS_FAILED") ||
+    (status.includes("FAIL") && !status.includes("FAILURE_PREFERENCE")) ||
+    status.includes("ERROR") ||
+    status.includes("CANCEL")
+  ) {
+    return {
+      status: "failed",
+      error: (errMsg || status || "PUBLIC_ERROR_UNKNOWN").slice(0, 160),
+      progress: 100,
+    };
+  }
+  if (
+    errMsg &&
+    (done ||
+      /HIGH_TRAFFIC|DANGER_FILTER|UNUSUAL|SAFETY|BLOCK|REJECT|PUBLIC_ERROR/i.test(errMsg))
+  ) {
+    return { status: "failed", error: errMsg.slice(0, 160), progress: 100 };
+  }
+
+  if (
+    status.includes("SUCCESS") ||
+    status.includes("MEDIA_GENERATION_STATUS_SUCCESSFUL") ||
+    (done && foundUrl)
+  ) {
+    if (!foundUrl) return { status: "pending", progress: 90 };
+    return { status: "done", videoUrl: foundUrl, progress: 100 };
+  }
+  // URL already present and not failed → complete.
+  if (foundUrl && !status.includes("FAIL") && !status.includes("ERROR")) {
+    return { status: "done", videoUrl: foundUrl, progress: 100 };
+  }
+  if (done && !foundUrl && !errMsg) {
+    return { status: "pending", progress: 85 };
+  }
+  if (
+    status.includes("ACTIVE") ||
+    status.includes("RUNNING") ||
+    status.includes("MEDIA_GENERATION_STATUS_ACTIVE")
+  ) {
+    return { status: "pending", progress: 60 };
+  }
+  if (
+    status.includes("SCHEDULED") ||
+    status.includes("PENDING") ||
+    status.includes("QUEUED") ||
+    status.includes("MEDIA_GENERATION_STATUS_SCHEDULED") ||
+    status.includes("MEDIA_GENERATION_STATUS_PENDING")
+  ) {
+    return { status: "pending", progress: 25 };
+  }
+
+  // Có operation object nhưng status lạ / rỗng: vẫn coi là tín hiệu hữu ích.
+  if (status || errMsg || foundUrl || done) {
+    return { status: "pending", progress: 15 };
+  }
+  return null;
+}
+
 export async function pollFlowVideoJob(input: {
   page: Page;
   accessToken: string;
   upstream: VideoUpstreamState;
 }): Promise<PollVideoResult> {
-  const operations = input.upstream.operations;
-  const workflows = input.upstream.workflows ?? [];
-  // Live Flow UI/status contracts vary; try the common shapes without leaking secrets.
+  const operations = input.upstream.operations.filter(Boolean);
+  const workflows = (input.upstream.workflows ?? []).filter(Boolean);
+  const projectId = input.upstream.projectId;
+  const clientContext = { projectId, tool: "PINHOLE" as const };
+
+  // Ưu tiên shape live Omni/Veo (logs production): operations[].operation.name + status + mediaGenerationId.
+  // Các shape rỗng 200 phải CONTINUE, không return sớm (bug cũ làm job kẹt progress 5/10).
   const payloads: unknown[] = [
-    { operations },
+    {
+      clientContext,
+      operations: operations.map((name) => ({ operation: { name } })),
+    },
+    {
+      clientContext,
+      operations: operations.map((name) => ({ name })),
+    },
+    {
+      clientContext,
+      media: operations.map((name) => ({ name, projectId })),
+    },
     { operations: operations.map((name) => ({ operation: { name } })) },
     { operations: operations.map((name) => ({ name })) },
-    { operationIds: operations },
-    { names: operations },
-    // Workflow-centric shapes observed via remainingCredits/workflows create responses.
+    { operations },
+    {
+      clientContext,
+      media: (workflows.length ? workflows : operations).map((name) => ({ name, projectId })),
+    },
     { workflows: workflows.map((name) => ({ name })) },
     { workflowIds: workflows.length ? workflows : operations },
-    {
-      clientContext: { projectId: input.upstream.projectId, tool: "PINHOLE" },
-      operations,
-    },
-    {
-      clientContext: { projectId: input.upstream.projectId, tool: "PINHOLE" },
-      media: (workflows.length ? workflows : operations).map((workflowId) => ({
-        name: workflowId,
-        projectId: input.upstream.projectId,
-      })),
-    },
+    { operationIds: operations },
+    { names: operations },
   ];
 
   let lastStatus = 0;
   let lastRaw = "";
+  let bestPending: PollVideoResult | null = null;
+
   for (const payload of payloads) {
     const result = await input.page.evaluate(
       async ([endpointUrl, bearer, body]) => {
@@ -345,8 +514,11 @@ export async function pollFlowVideoJob(input: {
     );
     lastStatus = result.status;
     lastRaw = result.raw;
-    if (result.status === 401 || result.status === 403) throw new Error("FLOW_REAUTH_REQUIRED");
+
+    // 401: token chết. 403 trên poll thường là payload/permission — thử shape khác, không reauth ngay.
+    if (result.status === 401) throw new Error("FLOW_REAUTH_REQUIRED");
     if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
+    if (result.status === 403) continue;
     if (result.status < 200 || result.status >= 300) continue;
 
     try {
@@ -368,126 +540,35 @@ export async function pollFlowVideoJob(input: {
         `flow_video_poll_keys=${JSON.stringify(keyWalk(parsedPreview).slice(0, 80))}\n`,
       );
     } catch {
-      process.stderr.write(
-        `flow_video_poll_ok status=${result.status} preview=${result.raw
-          .replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]")
-          .replace(/https:\/\/[^"\\]+/g, "[url]")
-          .slice(0, 280)}\n`,
-      );
+      /* ignore */
     }
 
-    try {
-      const parsed = JSON.parse(result.raw) as {
-        operations?: Array<{
-          name?: string;
-          status?: string;
-          done?: boolean;
-          error?: { message?: string };
-          operation?: { done?: boolean; error?: { message?: string }; response?: unknown };
-          response?: {
-            video?: { fifeUrl?: string; url?: string };
-            fifeUrl?: string;
-            generatedVideos?: Array<{ fifeUrl?: string; url?: string }>;
-          };
-          metadata?: { status?: string };
-        }>;
-      };
-      const op = parsed.operations?.[0];
-      if (!op) return { status: "pending", progress: 10 };
+    const interpreted = interpretPollResponse(result.raw);
+    if (!interpreted) continue;
 
-      const nested = op.operation;
-      const status = String(op.status || op.metadata?.status || "").toUpperCase();
-      const done = Boolean(op.done || nested?.done);
-      const errMsg = op.error?.message || nested?.error?.message;
-      if (
-        errMsg &&
-        (status.includes("FAIL") ||
-          status.includes("ERROR") ||
-          status.includes("MEDIA_GENERATION_STATUS_FAILED") ||
-          done)
-      ) {
-        return { status: "failed", error: errMsg.slice(0, 160), progress: 100 };
+    if (interpreted.status === "done" || interpreted.status === "failed") {
+      try {
+        process.stderr.write(
+          `flow_video_poll_result status=${interpreted.status} progress=${interpreted.progress}\n`,
+        );
+      } catch {
+        /* ignore */
       }
+      return interpreted;
+    }
 
-      const response = (op.response || nested?.response || {}) as {
-        video?: { fifeUrl?: string; url?: string };
-        fifeUrl?: string;
-        generatedVideos?: Array<{ fifeUrl?: string; url?: string }>;
-        media?: Array<{ video?: { fifeUrl?: string }; fifeUrl?: string; status?: string }>;
-      };
-      const metadata = (nested as { metadata?: { video?: { fifeUrl?: string } } } | undefined)
-        ?.metadata;
-      const videoUrl =
-        metadata?.video?.fifeUrl ||
-        response.video?.fifeUrl ||
-        response.video?.url ||
-        response.fifeUrl ||
-        response.generatedVideos?.[0]?.fifeUrl ||
-        response.generatedVideos?.[0]?.url ||
-        response.media?.[0]?.video?.fifeUrl ||
-        response.media?.[0]?.fifeUrl ||
-        "";
-
-      const collectUrls = (node: unknown, acc: string[] = [], depth = 0): string[] => {
-        if (depth > 7 || node == null) return acc;
-        if (typeof node === "string") {
-          if (/^https?:\/\//i.test(node)) acc.push(node);
-          return acc;
-        }
-        if (Array.isArray(node)) {
-          for (const item of node) collectUrls(item, acc, depth + 1);
-          return acc;
-        }
-        if (typeof node === "object") {
-          for (const v of Object.values(node as Record<string, unknown>)) {
-            collectUrls(v, acc, depth + 1);
-          }
-        }
-        return acc;
-      };
-      const urls = collectUrls(parsed);
-      let foundUrl =
-        videoUrl ||
-        urls.find((u) => /fife|googlevideo|videoplayback|flow-content|\.mp4|mh\//i.test(u)) ||
-        "";
-
-      if (
-        status.includes("SUCCESS") ||
-        status.includes("MEDIA_GENERATION_STATUS_SUCCESSFUL") ||
-        (done && foundUrl)
-      ) {
-        if (!foundUrl) return { status: "pending", progress: 90 };
-        return { status: "done", videoUrl: foundUrl, progress: 100 };
-      }
-      // If URL already present and not failed, complete even without explicit SUCCESS.
-      if (foundUrl && !status.includes("FAIL") && !status.includes("ERROR")) {
-        return { status: "done", videoUrl: foundUrl, progress: 100 };
-      }
-      if (done && !foundUrl && !errMsg) {
-        return { status: "pending", progress: 85 };
-      }
-      if (
-        status.includes("ACTIVE") ||
-        status.includes("RUNNING") ||
-        status.includes("MEDIA_GENERATION_STATUS_ACTIVE")
-      ) {
-        return { status: "pending", progress: 60 };
-      }
-      if (
-        status.includes("SCHEDULED") ||
-        status.includes("PENDING") ||
-        status.includes("QUEUED") ||
-        status.includes("MEDIA_GENERATION_STATUS_SCHEDULED") ||
-        status.includes("MEDIA_GENERATION_STATUS_PENDING")
-      ) {
-        return { status: "pending", progress: 25 };
-      }
-      // Unknown but HTTP 200: keep pending rather than fail hard.
-      return { status: "pending", progress: 15 };
-    } catch {
-      return { status: "pending", progress: 5 };
+    // Giữ pending “tốt nhất” (progress cao hơn = payload hiểu status rõ hơn).
+    if (
+      !bestPending ||
+      (interpreted.status === "pending" &&
+        bestPending.status === "pending" &&
+        interpreted.progress > bestPending.progress)
+    ) {
+      bestPending = interpreted;
     }
   }
+
+  if (bestPending) return bestPending;
 
   try {
     const preview = lastRaw.replace(/ya29\.[A-Za-z0-9._-]+/g, "[redacted]").slice(0, 240);
