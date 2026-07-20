@@ -235,7 +235,10 @@ def collect_stuck_images() -> list[tuple[str, str, str, str, str, str]]:
 SELECT r.id,
        COALESCE(r.model,'(none)'),
        COALESCE(u.email,'(no-email)'),
-       to_char(r."createdAt" AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD HH24:MI:SS'),
+       -- createdAt là timestamp without time zone, lưu wall-clock UTC (Prisma).
+       -- Phải gắn UTC trước rồi mới đổi sang giờ VN; AT TIME ZONE 'Asia/Ho_Chi_Minh'
+       -- trực tiếp sẽ hiểu nhầm giá trị đã là VN → lùi 7 tiếng (07:58 thay vì 21:58).
+       to_char((r."createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD HH24:MI:SS'),
        r."userId",
        COALESCE(r."relatedImageId",'')
 FROM "RequestLog" r
@@ -262,7 +265,10 @@ def collect_stuck_videos() -> list[tuple[str, str, str, str, str, str]]:
 SELECT r.id,
        COALESCE(r.model,'(none)'),
        COALESCE(u.email,'(no-email)'),
-       to_char(r."createdAt" AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD HH24:MI:SS'),
+       -- createdAt là timestamp without time zone, lưu wall-clock UTC (Prisma).
+       -- Phải gắn UTC trước rồi mới đổi sang giờ VN; AT TIME ZONE 'Asia/Ho_Chi_Minh'
+       -- trực tiếp sẽ hiểu nhầm giá trị đã là VN → lùi 7 tiếng (07:58 thay vì 21:58).
+       to_char((r."createdAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD HH24:MI:SS'),
        r."userId",
        COALESCE(r."relatedVideoId",'')
 FROM "RequestLog" r
