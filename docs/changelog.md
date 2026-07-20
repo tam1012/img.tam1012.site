@@ -1,5 +1,11 @@
 # Changelog — IMG Studio
 
+## 2026-07-20 — google-media-bridge: keepalive không reauth oan vì navigation race
+
+- Keepalive trước đây bắt mọi exception (kể cả `Execution context was destroyed / navigation`) → gắn `reauth_required` vĩnh viễn; flow-03/04/05 từng rơi pool dù session Google còn sống.
+- Sửa: retry lỗi browser tạm, chỉ `reauth_required` khi `FLOW_REAUTH_REQUIRED` / session unauthenticated thật; transient fail → giữ healthy + invalidate browser slot.
+- Thêm unit tests `src/accounts/keepalive.test.ts`. Account đang `reauth_required` vẫn cần enroll/verify tay một lần để vào lại pool.
+
 ## 2026-07-20 — Prompt Refine: safety shield theo tầng (log reject thật)
 
 - Nâng system prompt refine từ 1 dòng “soften sensitive wording” sang rule semantic 5 tầng dựa trên `docs/content-moderation-notes-2026-07-13.md` + log reject GPT/Grok.
