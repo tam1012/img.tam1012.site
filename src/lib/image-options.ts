@@ -4,7 +4,8 @@ import sharp from "sharp";
 const ASPECT_RATIOS = new Set(["1:1", "3:2", "4:3", "16:9", "2:3", "3:4", "9:16"]);
 /** Edit-only: "auto" is accepted by API, then resolved to a concrete ratio. */
 const ASPECT_RATIOS_WITH_AUTO = new Set([...ASPECT_RATIOS, "auto"]);
-const RESOLUTIONS = new Set(["1K", "1.5K", "2K", "4K"]);
+// 1.5K bị loại: Gemini/Vertex chỉ nhận imageSize 1K/2K/4K → 1.5K gây 400 INVALID_ARGUMENT.
+const RESOLUTIONS = new Set(["1K", "2K", "4K"]);
 const QUALITIES = new Set(["standard", "high"]);
 
 /** Supported edit/generate ratios with numeric width/height value. */

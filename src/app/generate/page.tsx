@@ -346,7 +346,6 @@ export default function GeneratePage() {
                   onChange={setResolution}
                   options={[
                     { value: "1K", label: "1K (1024px)" },
-                    { value: "1.5K", label: "1.5K (1536px)" },
                     { value: "2K", label: "2K (2048px)" },
                     ...(!isLimitedTo2K ? [{ value: "4K", label: "4K (3840px)" }] : []),
                   ]}

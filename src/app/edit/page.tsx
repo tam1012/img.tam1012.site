@@ -36,7 +36,6 @@ const MAX_EDIT_UPLOAD_BYTES = 9.5 * 1024 * 1024;
 const MAX_EDIT_UPLOAD_LABEL = "9.5MB";
 const ALL_RESOLUTION_OPTIONS = [
   { value: "1K", label: "1K (1024px)" },
-  { value: "1.5K", label: "1.5K (1536px)" },
   { value: "2K", label: "2K (2048px)" },
   { value: "4K", label: "4K (3840px)" },
 ];

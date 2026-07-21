@@ -123,7 +123,7 @@ Idempotency-Key: <chuỗi duy nhất, tối đa 120 ký tự>`}</Code>
                     <tr>
                       <td className="py-2 pr-3 text-zinc-300">resolution</td>
                       <td className="py-2 pr-3">Không</td>
-                      <td className="py-2">Mặc định 1K · 1.5K, 2K, 4K (tuỳ model)</td>
+                      <td className="py-2">Mặc định 1K · 2K, 4K (tuỳ model)</td>
                     </tr>
                     <tr>
                       <td className="py-2 pr-3 text-zinc-300">quality</td>
