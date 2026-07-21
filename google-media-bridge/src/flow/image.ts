@@ -292,8 +292,13 @@ function snippetRaw(raw: string, max = 220): string {
 
 /**
  * Post-generate upsample (Flow download quality 2K/4K).
- * Bundle schema 2026-07-21: clientContext + mediaId + requestContext + targetResolution.
- * Some call sites also send mediaGenerationId (= same id). Try both id fields + enum aliases.
+ *
+ * Live 400 from aisandbox (2026-07-21):
+ * - field `mediaGenerationId` does NOT exist on upsampleImage → only `mediaId`
+ * - wrong enum aliases also fail target_resolution
+ *
+ * Schema from Flow + live reject:
+ * { clientContext, mediaId, requestContext, targetResolution }
  */
 export async function upsampleFlowImage(input: {
   page: Page;
@@ -305,29 +310,25 @@ export async function upsampleFlowImage(input: {
   mediaGenerationId?: string;
   targetResolution: string;
 }): Promise<{ b64_json: string; bytes: number }> {
-  const mediaId = input.mediaId?.trim() || input.mediaGenerationId?.trim();
-  const mediaGenerationId = input.mediaGenerationId?.trim() || mediaId;
-  if (!mediaId) throw new Error("FLOW_INVALID_REQUEST");
-  const primaryTarget = input.targetResolution?.trim();
-  if (!primaryTarget) throw new Error("FLOW_INVALID_REQUEST");
-  const action = input.action ?? "IMAGE_GENERATION";
-
-  // Enum aliases seen in Flow bundle (underscore and no-underscore).
-  const targets = Array.from(
+  // Prefer mediaGenerationId value (CAMS… / long id) as mediaId field value when present;
+  // fall back to mediaId UUID. API field name is always mediaId only.
+  const idCandidates = Array.from(
     new Set(
-      [
-        primaryTarget,
-        primaryTarget.replace("UPSAMPLE_IMAGE_RESOLUTION_2K", "UPSAMPLE_IMAGE_RESOLUTION2K"),
-        primaryTarget.replace("UPSAMPLE_IMAGE_RESOLUTION_4K", "UPSAMPLE_IMAGE_RESOLUTION4K"),
-        primaryTarget.replace("UPSAMPLE_IMAGE_RESOLUTION_2K", "IMAGE_UPSAMPLE_RESOLUTION_2K"),
-        primaryTarget.replace("UPSAMPLE_IMAGE_RESOLUTION_4K", "IMAGE_UPSAMPLE_RESOLUTION_4K"),
-      ].filter(Boolean),
+      [input.mediaGenerationId?.trim(), input.mediaId?.trim()].filter(
+        (v): v is string => Boolean(v && v.length >= 8),
+      ),
     ),
   );
+  if (idCandidates.length === 0) throw new Error("FLOW_INVALID_REQUEST");
+
+  // Only the underscore enum accepted by generate path mapping; aliases caused 400.
+  const targetResolution = input.targetResolution?.trim();
+  if (!targetResolution) throw new Error("FLOW_INVALID_REQUEST");
+  const action = input.action ?? "IMAGE_GENERATION";
 
   let lastError = "FLOW_UPSTREAM_REJECTED";
 
-  for (const targetResolution of targets) {
+  for (const mediaId of idCandidates) {
     let token: string;
     try {
       token = await createRecaptchaToken(input.page, { siteKey: input.siteKey, action });
@@ -338,8 +339,9 @@ export async function upsampleFlowImage(input: {
     }
 
     const result = await input.page.evaluate(
-      async ([endpointUrl, bearer, tokenValue, project, media, mediaGen, target, timeoutMs]) => {
+      async ([endpointUrl, bearer, tokenValue, project, media, target, timeoutMs]) => {
         const sessionId = crypto.randomUUID?.() || `s-${Date.now()}`;
+        // Do NOT send mediaGenerationId — live API: "Unknown name mediaGenerationId".
         const body = {
           clientContext: {
             recaptchaContext: {
@@ -350,9 +352,7 @@ export async function upsampleFlowImage(input: {
             tool: "PINHOLE",
             sessionId,
           },
-          // Bundle sometimes sends both keys with the same value.
           mediaId: media,
-          mediaGenerationId: mediaGen || media,
           requestContext: {},
           targetResolution: target,
         };
@@ -388,7 +388,6 @@ export async function upsampleFlowImage(input: {
         token,
         input.projectId,
         mediaId,
-        mediaGenerationId,
         targetResolution,
         UPSTREAM_FETCH_TIMEOUT_MS,
       ] as const,
@@ -405,12 +404,11 @@ export async function upsampleFlowImage(input: {
     if (result.status !== 200) {
       lastError = formatUpstreamRejected(result.status, result.raw);
       console.warn(
-        `[flow-upsample] status=${result.status} target=${targetResolution} media=${mediaId.slice(0, 12)}… raw=${snippetRaw(result.raw)}`,
+        `[flow-upsample] status=${result.status} target=${targetResolution} media=${mediaId.slice(0, 16)}… raw=${snippetRaw(result.raw)}`,
       );
       continue;
     }
 
-    // Prefer fife URLs; also accept inline base64 fields if present.
     const urls = extractFifeUrls(result.raw);
     if (urls.length > 0) {
       const bin = await fetchUrlAsBase64(input.page, urls[0]);
@@ -445,7 +443,7 @@ export async function upsampleFlowImage(input: {
 
     lastError = "FLOW_UPSTREAM_REJECTED";
     console.warn(
-      `[flow-upsample] 200 but no image target=${targetResolution} media=${mediaId.slice(0, 12)}… raw=${snippetRaw(result.raw)}`,
+      `[flow-upsample] 200 but no image target=${targetResolution} media=${mediaId.slice(0, 16)}… raw=${snippetRaw(result.raw)}`,
     );
   }
 
