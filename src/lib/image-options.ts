@@ -65,6 +65,14 @@ export function maxEditImagesForProvider(provider: ProviderConfig) {
   return 1;
 }
 
+/** Model Vertex/Gemini đắt 4K: chặn 4K (UI ẩn + API clamp 4K→2K). */
+function isExpensiveGeminiImageModel(model: string) {
+  const m = model.toLowerCase();
+  // gemini-3-pro-image / gemini-3-pro-image-preview
+  // gemini-3.1-flash-image / gemini-3.1-flash-image-preview
+  return m.includes("gemini-3-pro-image") || m.includes("gemini-3.1-flash-image");
+}
+
 /** Độ phân giải tối đa UI được phép hiện cho provider này. */
 export function maxResolutionForProvider(provider: ProviderConfig): "2K" | "4K" {
   const model = provider.model || "";
@@ -72,6 +80,8 @@ export function maxResolutionForProvider(provider: ProviderConfig): "2K" | "4K" 
   if (/grok-imagine-image/i.test(model) || model.toLowerCase().includes("wan2.7-image")) {
     return "2K";
   }
+  // Gemini 3 Pro / 3.1 Flash qua Vertex: 4K ~$0.15–0.24/ảnh, chặn để tránh lỗ.
+  if (isExpensiveGeminiImageModel(model)) return "2K";
   return "4K";
 }
 

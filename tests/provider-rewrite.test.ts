@@ -151,9 +151,26 @@ describe("provider rewrite config", () => {
     expect(actualView.actualMeta.providerName).toBe(flowPro.name);
   });
 
-  it("clamps 4K to 2K for flow providers", () => {
+  it("clamps 4K to 2K for flow and expensive Gemini image models", () => {
     expect(clampResolutionForProvider(flowPro, "4K")).toBe("2K");
     expect(clampResolutionForProvider(flowPro, "2K")).toBe("2K");
-    expect(clampResolutionForProvider(gemini, "4K")).toBe("4K");
+    // gemini-3-pro-image / gemini-3.1-flash-image: 4K đắt → clamp 2K
+    expect(clampResolutionForProvider(gemini, "4K")).toBe("2K");
+    expect(clampResolutionForProvider(gemini, "2K")).toBe("2K");
+    const flash: ProviderConfig = {
+      ...gemini,
+      id: "gemini-3.1-flash",
+      name: "Gemini 3.1 Flash Image",
+      model: "gemini-3.1-flash-image",
+    };
+    expect(clampResolutionForProvider(flash, "4K")).toBe("2K");
+    // Model Gemini khác (vd 2.5 flash) vẫn cho 4K
+    const flash25: ProviderConfig = {
+      ...gemini,
+      id: "gemini-2.5-flash",
+      name: "Gemini 2.5 Flash Image",
+      model: "gemini-2.5-flash-image",
+    };
+    expect(clampResolutionForProvider(flash25, "4K")).toBe("4K");
   });
 });
