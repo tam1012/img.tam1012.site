@@ -3,6 +3,23 @@ export function getImagePriceVnd() {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 100;
 }
 
+// Model ảnh qua Google Flow có thể đặt giá riêng (khuyến mãi kích cầu).
+// Khi FLOW_IMAGE_PRICE_VND không set → dùng giá ảnh chung.
+const FLOW_IMAGE_MODELS = new Set(["flow-nano-banana-2", "flow-nano-banana-pro"]);
+
+export function getFlowImagePriceVnd() {
+  const raw = process.env.FLOW_IMAGE_PRICE_VND;
+  if (raw === undefined || raw === "") return getImagePriceVnd();
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : getImagePriceVnd();
+}
+
+/** Giá 1 ảnh theo model user chọn (model hiển thị, không phải model thật sau rewrite). */
+export function getImagePriceForModel(model: string | null | undefined) {
+  if (model && FLOW_IMAGE_MODELS.has(model)) return getFlowImagePriceVnd();
+  return getImagePriceVnd();
+}
+
 export function getVideoPriceVnd() {
   const value = Number(process.env.VIDEO_PRICE_VND || "1500");
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1500;

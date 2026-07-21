@@ -9,7 +9,7 @@ import {
 } from "@/lib/db";
 import { imageIdempotencyKey, normalizeIdempotencyKey, validateImageOptions } from "@/lib/image-options";
 import { generateImage, computePixelSize } from "@/lib/providers";
-import { getImagePriceVnd } from "@/lib/pricing";
+import { getImagePriceForModel } from "@/lib/pricing";
 import {
   clampResolutionForProvider,
   resolveProviderRoute,
@@ -85,7 +85,8 @@ export async function generateSingleImage(
   const provider = route.actual as ProviderConfig;
   resolution = clampResolutionForProvider(provider, resolution);
 
-  const price = getImagePriceVnd();
+  // Giá theo model user chọn (display), không theo model thật sau rewrite.
+  const price = getImagePriceForModel(route.display.model);
   if (user.role !== "admin" && user.balanceVnd < price) {
     return {
       ok: false,

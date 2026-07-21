@@ -11,6 +11,7 @@ interface Provider {
   name: string;
   is_default: boolean;
   max_resolution?: "2K" | "4K";
+  price_vnd?: number;
 }
 
 interface ResultImage {
@@ -83,7 +84,8 @@ export default function GeneratePage() {
   const selectedProvider = providers.find((p) => p.id === providerId);
   const isLimitedTo2K = selectedProvider?.max_resolution === "2K";
   const walletReady = me !== null;
-  const totalCost = (me?.wallet.image_price_vnd ?? 100) * count;
+  const unitPrice = selectedProvider?.price_vnd ?? me?.wallet.image_price_vnd ?? 100;
+  const totalCost = unitPrice * count;
   const canAfford = walletReady && (me.user.role === "admin" || me.wallet.balance_vnd >= totalCost);
   const money = (value: number) => formatVnd(value, locale);
 
@@ -379,11 +381,11 @@ export default function GeneratePage() {
             <span>
               {count > 1
                 ? t("common.priceTimesCount", {
-                    price: money(me?.wallet.image_price_vnd ?? 100),
+                    price: money(unitPrice),
                     count,
                     total: money(totalCost),
                   })
-                : t("common.pricePerImage", { price: money(me?.wallet.image_price_vnd ?? 100) })}
+                : t("common.pricePerImage", { price: money(unitPrice) })}
             </span>
             <span>
               {!walletReady

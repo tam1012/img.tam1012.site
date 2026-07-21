@@ -15,7 +15,7 @@ import {
   detectAspectRatio,
 } from "@/lib/image-options";
 import { editImage, computePixelSize } from "@/lib/providers";
-import { getImagePriceVnd } from "@/lib/pricing";
+import { getImagePriceForModel } from "@/lib/pricing";
 import {
   clampResolutionForProvider,
   resolveProviderRoute,
@@ -162,7 +162,7 @@ export async function editSingleImage(
     };
   }
 
-  const price = getImagePriceVnd();
+  const price = getImagePriceForModel(route.display.model);
   if (user.role !== "admin" && user.balanceVnd < price) {
     return {
       ok: false,

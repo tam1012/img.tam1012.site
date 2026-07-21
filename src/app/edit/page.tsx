@@ -12,6 +12,7 @@ interface Provider {
   is_default: boolean;
   max_edit_images?: number;
   max_resolution?: "2K" | "4K";
+  price_vnd?: number;
 }
 
 interface Result {
@@ -71,7 +72,8 @@ export default function EditPage() {
     ? ALL_RESOLUTION_OPTIONS.filter((opt) => opt.value !== "4K")
     : ALL_RESOLUTION_OPTIONS;
   const walletReady = me !== null;
-  const canAfford = walletReady && (me.user.role === "admin" || me.wallet.balance_vnd >= me.wallet.image_price_vnd);
+  const unitPrice = selectedProvider?.price_vnd ?? me?.wallet.image_price_vnd ?? 100;
+  const canAfford = walletReady && (me.user.role === "admin" || me.wallet.balance_vnd >= unitPrice);
   const limited2kMessage = t("edit.limited2k");
 
   const fetchProviders = useCallback(async () => {
@@ -396,7 +398,7 @@ export default function EditPage() {
           </div>
 
           <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
-            <span>{t("common.pricePerImage", { price: money(me?.wallet.image_price_vnd ?? 100) })}</span>
+            <span>{t("common.pricePerImage", { price: money(unitPrice) })}</span>
             <span>
               {!walletReady
                 ? t("common.balanceLoading")

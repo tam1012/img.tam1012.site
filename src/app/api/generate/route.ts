@@ -13,7 +13,7 @@ import {
 } from "@/lib/db";
 import { imageIdempotencyKey, normalizeIdempotencyKey, validateImageOptions } from "@/lib/image-options";
 import { generateImage, computePixelSize } from "@/lib/providers";
-import { getImagePriceVnd } from "@/lib/pricing";
+import { getImagePriceForModel } from "@/lib/pricing";
 import { debitForBatch, refundForBatch, INSUFFICIENT_BALANCE } from "@/lib/wallet";
 import { saveImageFile } from "@/lib/storage";
 import { isGenerateRateLimited } from "@/lib/rate-limit";
@@ -32,8 +32,6 @@ export async function POST(req: NextRequest) {
   if (isGenerateRateLimited(user.id)) {
     return NextResponse.json({ error: "Bạn thao tác quá nhanh, vui lòng thử lại sau" }, { status: 429 });
   }
-
-  const price = getImagePriceVnd();
 
   try {
     const body = await req.json();
@@ -64,6 +62,8 @@ export async function POST(req: NextRequest) {
     if (provider.api_type === "chatgpt_bridge" && user.role !== "admin") {
       return NextResponse.json({ error: "Provider này chỉ dành cho admin." }, { status: 403 });
     }
+    // Check balance sơ bộ theo model user chọn; giá charge thật tính lại sau rewrite.
+    const price = getImagePriceForModel(provider.model);
     if (user.role !== "admin" && user.balanceVnd < price * count) {
       return NextResponse.json({ error: "Số dư không đủ, vui lòng liên hệ admin để nạp tiền" }, { status: 402 });
     }
@@ -97,13 +97,15 @@ export async function POST(req: NextRequest) {
     const route = await resolveProviderRoute(provider, "generate");
     const actualProvider = route.actual;
     const effectiveResolution = clampResolutionForProvider(actualProvider, resolution);
+    // Giá theo model user chọn (display), không theo model thật sau rewrite.
+    const batchPrice = getImagePriceForModel(route.display.model);
     return handleBatch(user, route, {
       prompt: prompt.trim(),
       aspect_ratio,
       resolution: effectiveResolution,
       quality,
       clientKey,
-      price,
+      price: batchPrice,
       count,
     });
   } catch (e: unknown) {

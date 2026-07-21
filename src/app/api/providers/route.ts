@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, getCurrentUser } from "@/lib/auth";
 import { maxEditImagesForProvider, maxResolutionForProvider } from "@/lib/image-options";
 import { listProviders, addProvider, ProviderConfig } from "@/lib/db";
+import { getImagePriceForModel } from "@/lib/pricing";
 import { v4 as uuidv4 } from "uuid";
 
 function maskKey(key: string): string {
@@ -18,6 +19,7 @@ function publicProvider(p: ProviderConfig) {
     is_default: p.is_default,
     max_edit_images: maxEditImagesForProvider(p),
     max_resolution: maxResolutionForProvider(p),
+    price_vnd: getImagePriceForModel(p.model),
   };
 }
 
