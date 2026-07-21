@@ -198,6 +198,7 @@ async function flowGenerate(config: ProviderConfig, params: GenerateParams): Pro
       prompt: params.prompt,
       model: config.model,
       aspectRatio: params.aspectRatio,
+      resolution: params.resolution,
       width: params.width,
       height: params.height,
       n: count,
@@ -219,6 +220,7 @@ async function flowEdit(config: ProviderConfig, params: EditParams): Promise<Gen
       prompt: params.prompt,
       model: config.model,
       aspectRatio: params.aspectRatio,
+      resolution: params.resolution,
       width: params.width,
       height: params.height,
       n: 1,
@@ -236,6 +238,7 @@ async function flowEdit(config: ProviderConfig, params: EditParams): Promise<Gen
     };
   });
 }
+
 
 // ── ChatGPT Web Bridge ────────────────────────────────────
 

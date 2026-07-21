@@ -24,7 +24,10 @@ const FLOW_IMAGE_MODELS = [
 const imageRequest = z.object({
   model: z.enum(FLOW_IMAGE_MODELS).default("flow-nano-banana-2"),
   prompt: z.string().min(1).max(20_000),
-  size: z.string().default("1024x1024"),
+  // Prefer aspect ratio string (1:1, 16:9, 9:16, 4:3, 3:4). WxH still accepted for legacy.
+  size: z.string().default("1:1"),
+  // Flow: 1K = base generate; 2K/4K = post upsampleImage (UI download quality).
+  resolution: z.enum(["1K", "2K", "4K"]).default("1K"),
   n: z.number().int().min(1).max(4).default(1),
   response_format: z.enum(["b64_json", "url"]).default("b64_json"),
 });
@@ -32,7 +35,8 @@ const imageRequest = z.object({
 const editImageBody = z.object({
   model: z.enum(FLOW_IMAGE_MODELS).default("flow-nano-banana-2"),
   prompt: z.string().min(1).max(20_000),
-  size: z.string().default("1024x1024"),
+  size: z.string().default("1:1"),
+  resolution: z.enum(["1K", "2K", "4K"]).default("1K"),
   n: z.number().int().min(1).max(4).default(1),
   response_format: z.enum(["b64_json", "url"]).default("b64_json"),
   images: z
@@ -93,6 +97,7 @@ export function registerImageRoutes(
         prompt: body.prompt,
         model: body.model,
         size: body.size,
+        resolution: body.resolution,
         n: body.n,
       }),
     proxyOpts);
@@ -109,6 +114,7 @@ export function registerImageRoutes(
         prompt: body.prompt,
         model: body.model,
         size: body.size,
+        resolution: body.resolution,
         n: body.n,
         images: body.images.map((img, index) => {
           const mime = (img.mime_type || "image/png").split(";")[0].trim() || "image/png";

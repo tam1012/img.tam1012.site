@@ -14,12 +14,24 @@ function activeRoute(route: FlowRoute): Extract<FlowRoute, { route: "cpa" | "dir
 }
 
 function aspectToSize(aspectRatio?: string, width?: number, height?: number): string {
+  // Prefer explicit UI aspect ratio — Flow maps 5 enums from these labels.
+  const a = (aspectRatio || "").trim();
+  if (a === "1:1" || a === "16:9" || a === "9:16" || a === "4:3" || a === "3:4") return a;
+  // Near-ratios still useful as size hint for bridge nearest-bucket fallback
+  if (a === "2:3" || a === "3:2") return a;
   if (width && height) return `${width}x${height}`;
-  const a = (aspectRatio || "1:1").trim();
-  if (a === "9:16" || a === "3:4" || a === "2:3") return "1024x1792";
-  if (a === "16:9" || a === "4:3" || a === "3:2") return "1792x1024";
-  return "1024x1024";
+  return "1:1";
 }
+
+
+function normalizeFlowResolution(resolution?: string): "1K" | "2K" | "4K" {
+  const r = (resolution || "1K").trim().toUpperCase();
+  if (r === "2K" || r === "2") return "2K";
+  // Flow UI max download often 2K; bridge still accepts 4K enum if model supports.
+  if (r === "4K" || r === "4") return "4K";
+  return "1K";
+}
+
 
 async function parseFlowImageResponse(res: Response): Promise<FlowImageResult[]> {
   if (!res.ok) {
@@ -50,6 +62,7 @@ export async function generateFlowImageViaRoute(input: {
   model?: string;
   size?: string;
   aspectRatio?: string;
+  resolution?: string;
   width?: number;
   height?: number;
   n?: number;
@@ -63,6 +76,7 @@ export async function generateFlowImageViaRoute(input: {
   }
   const model = (input.model || route.model || "flow-nano-banana-2").trim();
   const size = input.size || aspectToSize(input.aspectRatio, input.width, input.height);
+  const resolution = normalizeFlowResolution(input.resolution);
   const fetchFn = input.fetchImpl ?? fetch;
   const res = await fetchFn(`${route.baseUrl}/images/generations`, {
     method: "POST",
@@ -74,6 +88,7 @@ export async function generateFlowImageViaRoute(input: {
       model,
       prompt: input.prompt,
       size,
+      resolution,
       n: input.n ?? 1,
       response_format: "b64_json",
     }),
@@ -87,6 +102,7 @@ export async function editFlowImageViaRoute(input: {
   model?: string;
   size?: string;
   aspectRatio?: string;
+  resolution?: string;
   width?: number;
   height?: number;
   n?: number;
@@ -104,6 +120,7 @@ export async function editFlowImageViaRoute(input: {
   }
   const model = (input.model || route.model || "flow-nano-banana-2").trim();
   const size = input.size || aspectToSize(input.aspectRatio, input.width, input.height);
+  const resolution = normalizeFlowResolution(input.resolution);
   const fetchFn = input.fetchImpl ?? fetch;
   const res = await fetchFn(`${route.baseUrl}/images/edits`, {
     method: "POST",
@@ -115,6 +132,7 @@ export async function editFlowImageViaRoute(input: {
       model,
       prompt: input.prompt,
       size,
+      resolution,
       n: input.n ?? 1,
       response_format: "b64_json",
       images: input.images.map((img) => ({
@@ -125,6 +143,7 @@ export async function editFlowImageViaRoute(input: {
   });
   return parseFlowImageResponse(res);
 }
+
 
 export async function createFlowVideoViaRoute(input: {
   prompt: string;

@@ -15,6 +15,7 @@ describe("flow client", () => {
       prompt: "apple",
       model: "flow-nano-banana-pro",
       aspectRatio: "16:9",
+      resolution: "2K",
       env: {
         FLOW_IMAGE_ROUTE: "direct",
         FLOW_BRIDGE_BASE_URL: "http://bridge.local/v1",
@@ -30,8 +31,11 @@ describe("flow client", () => {
     expect(String((init.headers as Record<string, string>).Authorization)).toContain("Bearer");
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe("flow-nano-banana-pro");
-    expect(body.size).toBe("1792x1024");
+    // Prefer aspect label over pixel WxH so bridge maps 5 Flow enums correctly.
+    expect(body.size).toBe("16:9");
+    expect(body.resolution).toBe("2K");
   });
+
 
   it("calls image edits for Nano Banana 2 and Pro with uploaded references", async () => {
     const fetchImpl = vi.fn(async () => ({
