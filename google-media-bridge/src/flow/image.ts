@@ -215,7 +215,7 @@ export function extractMediaGenerationIds(raw: string): string[] {
       }
       const obj = node as Record<string, unknown>;
       for (const [k, v] of Object.entries(obj)) {
-        if (typeof v === "string" && /mediaGenerationId|mediaId/i.test(k)) push(v);
+        if (typeof v === "string" && /mediaGenerationId/i.test(k)) push(v);
         else walk(v);
       }
     };
@@ -224,6 +224,51 @@ export function extractMediaGenerationIds(raw: string): string[] {
     /* ignore */
   }
   return ids;
+}
+
+/** Pair fife URLs with media ids from one generate response (order preserved). */
+export function extractGeneratedMedia(raw: string): Array<{
+  mediaGenerationId?: string;
+  mediaId?: string;
+  fifeUrl?: string;
+}> {
+  const out: Array<{ mediaGenerationId?: string; mediaId?: string; fifeUrl?: string }> = [];
+  try {
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const item of node) walk(item);
+        return;
+      }
+      const obj = node as Record<string, unknown>;
+      const mediaGenerationId =
+        typeof obj.mediaGenerationId === "string" ? obj.mediaGenerationId : undefined;
+      const mediaId = typeof obj.mediaId === "string" ? obj.mediaId : undefined;
+      let fifeUrl: string | undefined;
+      for (const [k, v] of Object.entries(obj)) {
+        if (/fifeurl/i.test(k) && typeof v === "string" && v.startsWith("http")) {
+          fifeUrl = v.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&");
+        }
+      }
+      // A generated image node usually has fifeUrl and/or mediaGenerationId.
+      if (mediaGenerationId || (fifeUrl && mediaId)) {
+        out.push({ mediaGenerationId, mediaId, fifeUrl });
+      }
+      for (const v of Object.values(obj)) walk(v);
+    };
+    walk(JSON.parse(raw));
+  } catch {
+    /* ignore */
+  }
+  if (out.length > 0) return out;
+  // Fallback: separate lists
+  const ids = extractMediaGenerationIds(raw);
+  const urls = extractFifeUrls(raw);
+  const n = Math.max(ids.length, urls.length);
+  for (let i = 0; i < n; i++) {
+    out.push({ mediaGenerationId: ids[i], fifeUrl: urls[i] });
+  }
+  return out;
 }
 
 async function fetchUrlAsBase64(page: Page, url: string): Promise<string | null> {
@@ -238,10 +283,17 @@ async function fetchUrlAsBase64(page: Page, url: string): Promise<string | null>
   }, url);
 }
 
+function snippetRaw(raw: string, max = 220): string {
+  return String(raw || "")
+    .replace(/\s+/g, " ")
+    .replace(/ya29\.[A-Za-z0-9._-]+/g, "ya29.[redacted]")
+    .slice(0, max);
+}
+
 /**
  * Post-generate upsample (Flow download quality 2K/4K).
- * Body shape from Flow app bundle 2026-07-21:
- * { clientContext, mediaId, requestContext, targetResolution }
+ * Bundle schema 2026-07-21: clientContext + mediaId + requestContext + targetResolution.
+ * Some call sites also send mediaGenerationId (= same id). Try both id fields + enum aliases.
  */
 export async function upsampleFlowImage(input: {
   page: Page;
@@ -250,94 +302,154 @@ export async function upsampleFlowImage(input: {
   siteKey: string;
   action?: string;
   mediaId: string;
+  mediaGenerationId?: string;
   targetResolution: string;
 }): Promise<{ b64_json: string; bytes: number }> {
-  const mediaId = input.mediaId?.trim();
+  const mediaId = input.mediaId?.trim() || input.mediaGenerationId?.trim();
+  const mediaGenerationId = input.mediaGenerationId?.trim() || mediaId;
   if (!mediaId) throw new Error("FLOW_INVALID_REQUEST");
-  const targetResolution = input.targetResolution?.trim();
-  if (!targetResolution) throw new Error("FLOW_INVALID_REQUEST");
+  const primaryTarget = input.targetResolution?.trim();
+  if (!primaryTarget) throw new Error("FLOW_INVALID_REQUEST");
   const action = input.action ?? "IMAGE_GENERATION";
 
-  let token: string;
-  try {
-    token = await createRecaptchaToken(input.page, { siteKey: input.siteKey, action });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "";
-    if (msg.includes("FLOW_RECAPTCHA_UNAVAILABLE")) throw err;
-    throw new Error("FLOW_RECAPTCHA_FAILED");
-  }
-
-  const result = await input.page.evaluate(
-    async ([endpointUrl, bearer, tokenValue, project, media, target, timeoutMs]) => {
-      const sessionId = crypto.randomUUID?.() || `s-${Date.now()}`;
-      const body = {
-        clientContext: {
-          recaptchaContext: {
-            token: tokenValue,
-            applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
-          },
-          projectId: project,
-          tool: "PINHOLE",
-          sessionId,
-        },
-        mediaId: media,
-        requestContext: {},
-        targetResolution: target,
-      };
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        const res = await fetch(endpointUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${bearer}`,
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        const raw = await res.text();
-        return { status: res.status, raw };
-      } catch (err) {
-        const aborted =
-          (err instanceof Error && err.name === "AbortError") ||
-          (typeof DOMException !== "undefined" &&
-            err instanceof DOMException &&
-            err.name === "AbortError");
-        if (aborted) return { status: 0, raw: "FETCH_TIMEOUT" };
-        throw err;
-      } finally {
-        clearTimeout(timer);
-      }
-    },
-    [
-      FLOW_UPSAMPLE_IMAGE_ENDPOINT,
-      input.accessToken,
-      token,
-      input.projectId,
-      mediaId,
-      targetResolution,
-      UPSTREAM_FETCH_TIMEOUT_MS,
-    ] as const,
+  // Enum aliases seen in Flow bundle (underscore and no-underscore).
+  const targets = Array.from(
+    new Set(
+      [
+        primaryTarget,
+        primaryTarget.replace("UPSAMPLE_IMAGE_RESOLUTION_2K", "UPSAMPLE_IMAGE_RESOLUTION2K"),
+        primaryTarget.replace("UPSAMPLE_IMAGE_RESOLUTION_4K", "UPSAMPLE_IMAGE_RESOLUTION4K"),
+        primaryTarget.replace("UPSAMPLE_IMAGE_RESOLUTION_2K", "IMAGE_UPSAMPLE_RESOLUTION_2K"),
+        primaryTarget.replace("UPSAMPLE_IMAGE_RESOLUTION_4K", "IMAGE_UPSAMPLE_RESOLUTION_4K"),
+      ].filter(Boolean),
+    ),
   );
 
-  if (result.status === 401) throw new Error("FLOW_REAUTH_REQUIRED");
-  if (result.status === 403) {
-    if (/recaptcha|captcha|UNUSUAL_ACTIVITY|PERMISSION_DENIED/i.test(result.raw)) {
+  let lastError = "FLOW_UPSTREAM_REJECTED";
+
+  for (const targetResolution of targets) {
+    let token: string;
+    try {
+      token = await createRecaptchaToken(input.page, { siteKey: input.siteKey, action });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("FLOW_RECAPTCHA_UNAVAILABLE")) throw err;
       throw new Error("FLOW_RECAPTCHA_FAILED");
     }
-    throw new Error("FLOW_REAUTH_REQUIRED");
-  }
-  if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
-  if (result.status !== 200) {
-    throw new Error(formatUpstreamRejected(result.status, result.raw));
+
+    const result = await input.page.evaluate(
+      async ([endpointUrl, bearer, tokenValue, project, media, mediaGen, target, timeoutMs]) => {
+        const sessionId = crypto.randomUUID?.() || `s-${Date.now()}`;
+        const body = {
+          clientContext: {
+            recaptchaContext: {
+              token: tokenValue,
+              applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
+            },
+            projectId: project,
+            tool: "PINHOLE",
+            sessionId,
+          },
+          // Bundle sometimes sends both keys with the same value.
+          mediaId: media,
+          mediaGenerationId: mediaGen || media,
+          requestContext: {},
+          targetResolution: target,
+        };
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const res = await fetch(endpointUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${bearer}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          const raw = await res.text();
+          return { status: res.status, raw };
+        } catch (err) {
+          const aborted =
+            (err instanceof Error && err.name === "AbortError") ||
+            (typeof DOMException !== "undefined" &&
+              err instanceof DOMException &&
+              err.name === "AbortError");
+          if (aborted) return { status: 0, raw: "FETCH_TIMEOUT" };
+          throw err;
+        } finally {
+          clearTimeout(timer);
+        }
+      },
+      [
+        FLOW_UPSAMPLE_IMAGE_ENDPOINT,
+        input.accessToken,
+        token,
+        input.projectId,
+        mediaId,
+        mediaGenerationId,
+        targetResolution,
+        UPSTREAM_FETCH_TIMEOUT_MS,
+      ] as const,
+    );
+
+    if (result.status === 401) throw new Error("FLOW_REAUTH_REQUIRED");
+    if (result.status === 403) {
+      if (/recaptcha|captcha|UNUSUAL_ACTIVITY|PERMISSION_DENIED/i.test(result.raw)) {
+        throw new Error("FLOW_RECAPTCHA_FAILED");
+      }
+      throw new Error("FLOW_REAUTH_REQUIRED");
+    }
+    if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
+    if (result.status !== 200) {
+      lastError = formatUpstreamRejected(result.status, result.raw);
+      console.warn(
+        `[flow-upsample] status=${result.status} target=${targetResolution} media=${mediaId.slice(0, 12)}… raw=${snippetRaw(result.raw)}`,
+      );
+      continue;
+    }
+
+    // Prefer fife URLs; also accept inline base64 fields if present.
+    const urls = extractFifeUrls(result.raw);
+    if (urls.length > 0) {
+      const bin = await fetchUrlAsBase64(input.page, urls[0]);
+      if (bin) return { b64_json: bin, bytes: Math.floor((bin.length * 3) / 4) };
+    }
+    try {
+      const parsed = JSON.parse(result.raw) as Record<string, unknown>;
+      const stack: unknown[] = [parsed];
+      while (stack.length) {
+        const node = stack.pop();
+        if (!node || typeof node !== "object") continue;
+        if (Array.isArray(node)) {
+          for (const item of node) stack.push(item);
+          continue;
+        }
+        const obj = node as Record<string, unknown>;
+        for (const [k, v] of Object.entries(obj)) {
+          if (
+            typeof v === "string" &&
+            v.length > 200 &&
+            /encodedImage|rawBytes|imageBytes|b64/i.test(k) &&
+            !v.startsWith("http")
+          ) {
+            return { b64_json: v, bytes: Math.floor((v.length * 3) / 4) };
+          }
+          if (v && typeof v === "object") stack.push(v);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    lastError = "FLOW_UPSTREAM_REJECTED";
+    console.warn(
+      `[flow-upsample] 200 but no image target=${targetResolution} media=${mediaId.slice(0, 12)}… raw=${snippetRaw(result.raw)}`,
+    );
   }
 
-  const urls = extractFifeUrls(result.raw);
-  if (urls.length === 0) throw new Error("FLOW_UPSTREAM_REJECTED");
-  const bin = await fetchUrlAsBase64(input.page, urls[0]);
-  if (!bin) throw new Error("FLOW_UPSTREAM_REJECTED");
-  return { b64_json: bin, bytes: Math.floor((bin.length * 3) / 4) };
+  throw new Error(lastError);
 }
 
 /** Extract media name/id from uploadImage response without assuming a single schema. */
@@ -590,34 +702,54 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
     }
     if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
     if (result.status === 200) {
+      const mediaItems = extractGeneratedMedia(result.raw);
       const mediaIds = extractMediaGenerationIds(result.raw);
       const urls = extractFifeUrls(result.raw);
       const images: GeneratedImage[] = [];
 
-      // If user asked 2K/4K: upsample each mediaId (Flow download quality path).
-      // On upsample failure for a single image, fall back to base generate bytes.
-      if (upsampleTarget && mediaIds.length > 0) {
-        for (let i = 0; i < Math.min(n, mediaIds.length); i++) {
-          try {
-            const up = await upsampleFlowImage({
-              page: input.page,
-              accessToken: input.accessToken,
-              projectId: input.projectId,
-              siteKey: input.siteKey,
-              action,
-              mediaId: mediaIds[i],
-              targetResolution: upsampleTarget,
-            });
-            images.push({ ...up, mediaId: mediaIds[i] });
-          } catch {
-            const url = urls[i];
-            if (!url) continue;
-            const bin = await fetchUrlAsBase64(input.page, url);
+      console.info(
+        `[flow-generate] resolution=${input.resolution || "1K"} upsample=${upsampleTarget || "none"} mediaItems=${mediaItems.length} mediaIds=${mediaIds.length} urls=${urls.length}`,
+      );
+
+      // If user asked 2K/4K: upsample each media id (Flow download quality path).
+      // On upsample failure for a single image, fall back to base generate bytes (logged).
+      if (upsampleTarget) {
+        const count = Math.min(n, Math.max(mediaItems.length, mediaIds.length, urls.length, 1));
+        for (let i = 0; i < count; i++) {
+          const item = mediaItems[i];
+          const id = item?.mediaGenerationId || item?.mediaId || mediaIds[i];
+          const baseUrl = item?.fifeUrl || urls[i];
+          if (id) {
+            try {
+              const up = await upsampleFlowImage({
+                page: input.page,
+                accessToken: input.accessToken,
+                projectId: input.projectId,
+                siteKey: input.siteKey,
+                action,
+                mediaId: item?.mediaId || id,
+                mediaGenerationId: item?.mediaGenerationId || id,
+                targetResolution: upsampleTarget,
+              });
+              images.push({ ...up, mediaId: id });
+              console.info(`[flow-upsample] ok media=${id.slice(0, 12)}… target=${upsampleTarget}`);
+              continue;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.warn(
+                `[flow-upsample] fail media=${id.slice(0, 12)}… target=${upsampleTarget} err=${msg.slice(0, 160)} — fallback base`,
+              );
+            }
+          } else {
+            console.warn(`[flow-upsample] missing mediaId (urls=${urls.length}) — fallback base`);
+          }
+          if (baseUrl) {
+            const bin = await fetchUrlAsBase64(input.page, baseUrl);
             if (bin) {
               images.push({
                 b64_json: bin,
                 bytes: Math.floor((bin.length * 3) / 4),
-                mediaId: mediaIds[i],
+                mediaId: id,
               });
             }
           }
@@ -630,7 +762,7 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
             images.push({
               b64_json: bin,
               bytes: Math.floor((bin.length * 3) / 4),
-              mediaId: mediaIds[i],
+              mediaId: mediaIds[i] || mediaItems[i]?.mediaGenerationId,
             });
           }
         }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractGeneratedMedia,
   extractMediaGenerationIds,
   extractUploadedImageName,
   mapAspectRatio,
@@ -22,11 +23,9 @@ describe("image adapter mapping", () => {
     expect(mapAspectRatio("9:16")).toBe("IMAGE_ASPECT_RATIO_PORTRAIT");
     expect(mapAspectRatio("4:3")).toBe("IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE");
     expect(mapAspectRatio("3:4")).toBe("IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR");
-    // legacy sizes
     expect(mapAspectRatio("1024x1024")).toBe("IMAGE_ASPECT_RATIO_SQUARE");
     expect(mapAspectRatio("1792x1024")).toBe("IMAGE_ASPECT_RATIO_LANDSCAPE");
     expect(mapAspectRatio("1024x1792")).toBe("IMAGE_ASPECT_RATIO_PORTRAIT");
-    // pixel size nearest-bucket (2048x1536 ≈ 4:3)
     expect(mapAspectRatio("2048x1536")).toBe("IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE");
     expect(mapAspectRatio("1536x2048")).toBe("IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR");
   });
@@ -47,6 +46,26 @@ describe("image adapter mapping", () => {
       ),
     ).toEqual(["mgid-1111-aaaa-bbbb-cccccccccccc"]);
     expect(extractMediaGenerationIds("{not-json")).toEqual([]);
+  });
+
+  it("pairs generated media with fifeUrl and mediaGenerationId", () => {
+    const items = extractGeneratedMedia(
+      JSON.stringify({
+        responses: [
+          {
+            generatedImages: [
+              {
+                mediaGenerationId: "mgid-aaaa-bbbb-cccc-ddddeeee0001",
+                mediaId: "mid-1",
+                fifeUrl: "https://lh3.googleusercontent.com/fife/abc",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(items[0]?.mediaGenerationId).toBe("mgid-aaaa-bbbb-cccc-ddddeeee0001");
+    expect(items[0]?.fifeUrl).toContain("fife");
   });
 
   it("extracts upload media name from common response shapes", () => {
