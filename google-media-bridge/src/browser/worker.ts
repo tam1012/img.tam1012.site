@@ -54,6 +54,8 @@ const CHROMIUM_ARGS = [
   "--disable-quic",
   "--disable-blink-features=AutomationControlled",
   "--disable-features=TranslateUI,BlinkGenPropertyTrees",
+  // VPS không có GPU thật; bỏ cờ này thì Chromium software-render bằng SwiftShader, gpu-process ăn ~1 core vô ích.
+  "--disable-gpu",
 ];
 
 const DEFAULT_UA =

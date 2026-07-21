@@ -6,6 +6,11 @@ services:
     image: google-media-bridge:local
     container_name: google-media-bridge
     restart: unless-stopped
+    # Trần CPU: Chromium software-render (không GPU thật) dễ ăn 2+ core làm treo VPS.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
     env_file:
       - .env
     environment:
