@@ -15,6 +15,11 @@ import {
   type CreateVideoInput,
   type VideoUpstreamState,
 } from "../flow/video.js";
+import {
+  TRANSIENT_UPSTREAM_COOLDOWN_MS,
+  isTransientUpstreamError,
+  publicFlowError,
+} from "../flow/upstream-errors.js";
 import type { JobRepository } from "../jobs/repository.js";
 import { encryptJSON, decryptJSON } from "../security/vault.js";
 import { requireApiKey } from "./auth.js";
@@ -72,8 +77,13 @@ export function registerVideoRoutes(
     );
   }
 
+  /** reauth / reCAPTCHA / nghẽn tạm → được đổi account 1 lần. */
   function isRetryableAccountError(message: string): boolean {
-    return message.includes("FLOW_REAUTH_REQUIRED") || isRecaptchaError(message);
+    return (
+      message.includes("FLOW_REAUTH_REQUIRED") ||
+      isRecaptchaError(message) ||
+      isTransientUpstreamError(message)
+    );
   }
 
   function recordError(accountId: string, message: string): void {
@@ -85,6 +95,12 @@ export function registerVideoRoutes(
       deps.scheduler.applyCooldown(accountId, 60_000, "recaptcha_unavailable");
     } else if (message.includes("FLOW_RECAPTCHA_FAILED")) {
       deps.scheduler.applyCooldown(accountId, 3 * 60_000, "recaptcha");
+    } else if (isTransientUpstreamError(message)) {
+      deps.scheduler.applyCooldown(
+        accountId,
+        TRANSIENT_UPSTREAM_COOLDOWN_MS,
+        "upstream_transient",
+      );
     }
   }
 
@@ -147,7 +163,7 @@ export function registerVideoRoutes(
           }
         }
 
-        // reauth / reCAPTCHA fallback: thử account khác.
+        // reauth / reCAPTCHA / transient: thử account khác.
         if (!result && isRetryableAccountError(msg)) {
           recordError(leaseAccountId, msg);
           deps.scheduler.release(leaseAccountId);
@@ -156,19 +172,23 @@ export function registerVideoRoutes(
           try {
             const retryLease = deps.scheduler.acquire("video");
             leaseAccountId = retryLease.accountId;
-            // Try direct first on fallback — proxy already failed on prior account.
+            const preferDirect = !isTransientUpstreamError(msg);
             try {
-              result = await createVideoOnAccount(leaseAccountId, video, { proxy: false });
+              result = await createVideoOnAccount(leaseAccountId, video, {
+                proxy: !preferDirect,
+              });
             } catch {
-              result = await createVideoOnAccount(leaseAccountId, video, { proxy: true });
+              result = await createVideoOnAccount(leaseAccountId, video, {
+                proxy: preferDirect,
+              });
             }
             deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
           } catch (retryError) {
             const retryMsg =
               retryError instanceof Error ? retryError.message : "FLOW_UPSTREAM_REJECTED";
             if (leaseAccountId) recordError(leaseAccountId, retryMsg);
-            const code = retryMsg.startsWith("FLOW_") ? retryMsg.split(" ")[0] : "FLOW_UPSTREAM_REJECTED";
-            return reply.code(errorStatus(retryMsg)).send({ error: { message: code, code } });
+            const pub = publicFlowError(retryMsg);
+            return reply.code(errorStatus(retryMsg)).send({ error: pub });
           }
         }
 
@@ -193,8 +213,8 @@ export function registerVideoRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : "FLOW_UPSTREAM_REJECTED";
       if (leaseAccountId) recordError(leaseAccountId, message);
-      const code = message.startsWith("FLOW_") ? message.split(" ")[0] : "FLOW_UPSTREAM_REJECTED";
-      return reply.code(errorStatus(message)).send({ error: { message: code, code } });
+      const pub = publicFlowError(message);
+      return reply.code(errorStatus(message)).send({ error: pub });
     } finally {
       if (leaseAccountId) deps.scheduler.release(leaseAccountId);
     }

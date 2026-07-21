@@ -6,6 +6,11 @@ import type { BrowserWorkerPool } from "../browser/worker.js";
 import type { BridgeConfig } from "../config.js";
 import { editFlowImages, generateFlowImages } from "../flow/image.js";
 import { readSession } from "../flow/session-broker.js";
+import {
+  TRANSIENT_UPSTREAM_COOLDOWN_MS,
+  isTransientUpstreamError,
+  publicFlowError,
+} from "../flow/upstream-errors.js";
 import { requireApiKey } from "./auth.js";
 
 const FLOW_IMAGE_MODELS = [
@@ -137,8 +142,13 @@ export function registerImageRoutes(
     );
   }
 
+  /** reauth / reCAPTCHA / nghẽn tạm → được đổi account 1 lần. */
   function isRetryableAccountError(message: string): boolean {
-    return message.includes("FLOW_REAUTH_REQUIRED") || isRecaptchaError(message);
+    return (
+      message.includes("FLOW_REAUTH_REQUIRED") ||
+      isRecaptchaError(message) ||
+      isTransientUpstreamError(message)
+    );
   }
 
   function recordError(accountId: string, message: string): void {
@@ -152,6 +162,13 @@ export function registerImageRoutes(
     } else if (message.includes("FLOW_RECAPTCHA_FAILED")) {
       // Risk score / unusual activity tạm thời — 3 phút thay vì 15 phút quota.
       deps.scheduler.applyCooldown(accountId, 3 * 60_000, "recaptcha");
+    } else if (isTransientUpstreamError(message)) {
+      // Google nghẽn / timeout — không reauth; cooldown ngắn để ưu tiên account khác.
+      deps.scheduler.applyCooldown(
+        accountId,
+        TRANSIENT_UPSTREAM_COOLDOWN_MS,
+        "upstream_transient",
+      );
     }
   }
 
@@ -185,11 +202,11 @@ export function registerImageRoutes(
           const directMessage =
             directError instanceof Error ? directError.message : "FLOW_UPSTREAM_REJECTED";
           recordError(leaseAccountId, directMessage);
-          // fall through to reauth fallback below
+          // fall through to reauth/transient fallback below
         }
       }
 
-      // reauth / reCAPTCHA fallback: thử 1 account healthy khác (đã proxy, lần 2 trực tiếp).
+      // reauth / reCAPTCHA / transient: thử 1 account healthy khác.
       if (isRetryableAccountError(message) && leaseAccountId) {
         recordError(leaseAccountId, message);
         deps.scheduler.release(leaseAccountId);
@@ -198,12 +215,14 @@ export function registerImageRoutes(
         try {
           const retryLease = deps.scheduler.acquire("image");
           leaseAccountId = retryLease.accountId;
-          // Try direct first on fallback — proxy already failed on prior account.
+          // Transient: thử lại với proxy trước (nghẽn thường không liên quan proxy).
+          // reauth/reCAPTCHA path cũ: ưu tiên direct vì proxy vừa fail.
+          const preferDirect = !isTransientUpstreamError(message);
           let result;
           try {
-            result = await work(leaseAccountId, { proxy: false });
+            result = await work(leaseAccountId, { proxy: !preferDirect });
           } catch {
-            result = await work(leaseAccountId, { proxy: true });
+            result = await work(leaseAccountId, { proxy: preferDirect });
           }
           deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
           return {
@@ -214,14 +233,14 @@ export function registerImageRoutes(
           const retryMessage =
             retryError instanceof Error ? retryError.message : "FLOW_UPSTREAM_REJECTED";
           if (leaseAccountId) recordError(leaseAccountId, retryMessage);
-          const code = retryMessage.split(" ")[0];
-          return reply.code(errorStatus(retryMessage)).send({ error: { message: code, code } });
+          const pub = publicFlowError(retryMessage);
+          return reply.code(errorStatus(retryMessage)).send({ error: pub });
         }
       }
 
       if (leaseAccountId) recordError(leaseAccountId, message);
-      const code = message.split(" ")[0];
-      return reply.code(errorStatus(message)).send({ error: { message: code, code } });
+      const pub = publicFlowError(message);
+      return reply.code(errorStatus(message)).send({ error: pub });
     } finally {
       if (leaseAccountId) deps.scheduler.release(leaseAccountId);
     }

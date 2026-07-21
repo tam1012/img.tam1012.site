@@ -4,6 +4,10 @@ import { join } from "node:path";
 import type { Page } from "playwright-core";
 import type { JobKind } from "../types.js";
 import { createRecaptchaToken } from "./token-factory.js";
+import {
+  UPSTREAM_FETCH_TIMEOUT_MS,
+  formatUpstreamRejected,
+} from "./upstream-errors.js";
 
 export type CreateVideoInput = {
   prompt: string;
@@ -150,19 +154,34 @@ export async function createFlowVideoJob(input: {
     };
 
     const result = await input.page.evaluate(
-      async ([endpointUrl, bearer, payload]) => {
-        const res = await fetch(endpointUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${bearer}`,
-          },
-          body: JSON.stringify(payload),
-        });
-        const raw = await res.text();
-        return { status: res.status, raw };
+      async ([endpointUrl, bearer, payload, timeoutMs]) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const res = await fetch(endpointUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${bearer}`,
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          });
+          const raw = await res.text();
+          return { status: res.status, raw };
+        } catch (err) {
+          const aborted =
+            (err instanceof Error && err.name === "AbortError") ||
+            (typeof DOMException !== "undefined" &&
+              err instanceof DOMException &&
+              err.name === "AbortError");
+          if (aborted) return { status: 0, raw: "FETCH_TIMEOUT" };
+          throw err;
+        } finally {
+          clearTimeout(timer);
+        }
       },
-      [endpoint, input.accessToken, body] as const,
+      [endpoint, input.accessToken, body, UPSTREAM_FETCH_TIMEOUT_MS] as const,
     );
 
     lastStatus = result.status;
@@ -191,14 +210,7 @@ export async function createFlowVideoJob(input: {
     }
     if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
     if (result.status < 200 || result.status >= 300) {
-      let detail = "";
-      try {
-        const parsed = JSON.parse(result.raw) as { error?: { message?: string } };
-        detail = parsed.error?.message ? ` ${parsed.error.message.slice(0, 120)}` : "";
-      } catch {
-        detail = "";
-      }
-      throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}${detail}`);
+      throw new Error(formatUpstreamRejected(result.status, result.raw));
     }
 
     let operations: string[] = [];
@@ -286,7 +298,9 @@ export async function createFlowVideoJob(input: {
   }
 
   throw new Error(
-    lastStatus ? `FLOW_UPSTREAM_REJECTED status=${lastStatus}` : "FLOW_RECAPTCHA_FAILED",
+    lastStatus || lastRaw
+      ? formatUpstreamRejected(lastStatus, lastRaw)
+      : "FLOW_RECAPTCHA_FAILED",
   );
 }
 

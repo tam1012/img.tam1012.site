@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { Page } from "playwright-core";
 import { createRecaptchaToken } from "./token-factory.js";
+import {
+  UPSTREAM_FETCH_TIMEOUT_MS,
+  formatUpstreamRejected,
+} from "./upstream-errors.js";
 
 // Verified Phase 1 contract for Flow image generation.
 export const FLOW_IMAGE_ENDPOINT =
@@ -200,7 +204,7 @@ export async function uploadFlowImage(input: {
   if (!imageBytes) throw new Error("FLOW_INVALID_REQUEST");
 
   const result = await input.page.evaluate(
-    async ([endpointUrl, bearer, project, bytes, mime, name]) => {
+    async ([endpointUrl, bearer, project, bytes, mime, name, timeoutMs]) => {
       const body = {
         clientContext: {
           projectId: project,
@@ -212,16 +216,31 @@ export async function uploadFlowImage(input: {
         isUserUploaded: true,
         isHidden: false,
       };
-      const res = await fetch(endpointUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${bearer}`,
-        },
-        body: JSON.stringify(body),
-      });
-      const raw = await res.text();
-      return { status: res.status, raw };
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(endpointUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${bearer}`,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const raw = await res.text();
+        return { status: res.status, raw };
+      } catch (err) {
+        const aborted =
+          (err instanceof Error && err.name === "AbortError") ||
+          (typeof DOMException !== "undefined" &&
+            err instanceof DOMException &&
+            err.name === "AbortError");
+        if (aborted) return { status: 0, raw: "FETCH_TIMEOUT" };
+        throw err;
+      } finally {
+        clearTimeout(timer);
+      }
     },
     [
       FLOW_UPLOAD_IMAGE_ENDPOINT,
@@ -230,6 +249,7 @@ export async function uploadFlowImage(input: {
       imageBytes,
       mimeType,
       fileName,
+      UPSTREAM_FETCH_TIMEOUT_MS,
     ] as const,
   );
 
@@ -242,7 +262,7 @@ export async function uploadFlowImage(input: {
   }
   if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
   if (result.status !== 200) {
-    throw new Error(`FLOW_UPSTREAM_REJECTED status=${result.status}`);
+    throw new Error(formatUpstreamRejected(result.status, result.raw));
   }
   const name = extractUploadedImageName(result.raw);
   if (!name) throw new Error("FLOW_UPSTREAM_REJECTED");
@@ -280,7 +300,18 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
 
     const endpoint = FLOW_IMAGE_ENDPOINT.replace("{projectId}", input.projectId);
     const result = await input.page.evaluate(
-      async ([endpointUrl, bearer, tokenValue, project, model, aspect, text, count, refs]) => {
+      async ([
+        endpointUrl,
+        bearer,
+        tokenValue,
+        project,
+        model,
+        aspect,
+        text,
+        count,
+        refs,
+        timeoutMs,
+      ]) => {
         const sessionId = crypto.randomUUID?.() || `s-${Date.now()}`;
         const batchId = crypto.randomUUID?.() || `b-${Date.now()}`;
         const clientContext = {
@@ -306,16 +337,31 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
           useNewMedia: true,
           requests,
         };
-        const res = await fetch(endpointUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${bearer}`,
-          },
-          body: JSON.stringify(body),
-        });
-        const raw = await res.text();
-        return { status: res.status, raw };
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const res = await fetch(endpointUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${bearer}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          const raw = await res.text();
+          return { status: res.status, raw };
+        } catch (err) {
+          const aborted =
+            (err instanceof Error && err.name === "AbortError") ||
+            (typeof DOMException !== "undefined" &&
+              err instanceof DOMException &&
+              err.name === "AbortError");
+          if (aborted) return { status: 0, raw: "FETCH_TIMEOUT" };
+          throw err;
+        } finally {
+          clearTimeout(timer);
+        }
       },
       [
         endpoint,
@@ -327,6 +373,7 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
         prompt,
         n,
         imageInputs,
+        UPSTREAM_FETCH_TIMEOUT_MS,
       ] as const,
     );
 
@@ -376,7 +423,9 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
   }
 
   throw new Error(
-    lastStatus ? `FLOW_UPSTREAM_REJECTED status=${lastStatus}` : "FLOW_UPSTREAM_REJECTED",
+    lastStatus || lastRaw
+      ? formatUpstreamRejected(lastStatus, lastRaw)
+      : "FLOW_UPSTREAM_REJECTED",
   );
 }
 
