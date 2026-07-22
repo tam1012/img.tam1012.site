@@ -47,7 +47,12 @@ const PACKAGES = [
   { id: "p20k", amountVnd: 20000 },
   { id: "p50k", amountVnd: 50000 },
   { id: "p100k", amountVnd: 100000 },
+  { id: "p200k", amountVnd: 200000 },
+  { id: "p500k", amountVnd: 500000 },
 ];
+
+const CUSTOM_MIN_VND = 10000;
+const CUSTOM_MAX_VND = 10000000;
 
 const LEDGER_KEYS = new Set([
   "topup_manual",
@@ -67,16 +72,26 @@ export default function BillingPage() {
   const [role, setRole] = useState<"admin" | "user" | null>(null);
   const [ledger, setLedger] = useState<LedgerItem[]>([]);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [customAmount, setCustomAmount] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<"success" | "cancel" | null>(null);
   const [scriptReady, setScriptReady] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
-  const [activePackage, setActivePackage] = useState<(typeof PACKAGES)[number] | null>(null);
+  const [activePackage, setActivePackage] = useState<{ amountVnd: number } | null>(null);
   const exitRef = useRef<(() => void) | null>(null);
   const embedSectionRef = useRef<HTMLElement | null>(null);
 
   const price = wallet?.image_price_vnd ?? 100;
   const isAdmin = role === "admin";
+
+  const customValue = Math.floor(Number(customAmount));
+  const customPreview =
+    customAmount.trim() !== "" &&
+    Number.isFinite(customValue) &&
+    customValue >= CUSTOM_MIN_VND &&
+    customValue <= CUSTOM_MAX_VND
+      ? Math.floor(customValue / price)
+      : null;
 
   function ledgerLabel(type: string) {
     if (LEDGER_KEYS.has(type)) {
@@ -147,17 +162,16 @@ export default function BillingPage() {
     setActivePackage(null);
   }
 
-  async function buyPackage(id: string) {
+  async function createOrder(loadingKey: string, payload: Record<string, unknown>, pkg: { amountVnd: number } | null) {
     if (loadingId || checkoutUrl) return;
-    const pkg = PACKAGES.find((item) => item.id === id) ?? null;
-    setLoadingId(id);
+    setLoadingId(loadingKey);
     setError("");
     setNotice(null);
     try {
       const res = await fetch("/api/payos/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ package_id: id }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -173,6 +187,20 @@ export default function BillingPage() {
     } finally {
       setLoadingId(null);
     }
+  }
+
+  function buyPackage(id: string) {
+    const pkg = PACKAGES.find((item) => item.id === id) ?? null;
+    createOrder(id, { package_id: id }, pkg);
+  }
+
+  function buyCustom() {
+    const amount = Math.floor(Number(customAmount));
+    if (!Number.isFinite(amount) || amount < CUSTOM_MIN_VND || amount > CUSTOM_MAX_VND) {
+      setError(t("billing.customRange", { min: money(CUSTOM_MIN_VND), max: money(CUSTOM_MAX_VND) }));
+      return;
+    }
+    createOrder("custom", { amount }, { amountVnd: amount });
   }
 
   return (
@@ -216,7 +244,7 @@ export default function BillingPage() {
         <section className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 space-y-3">
           <h2 className="text-sm font-medium text-zinc-200">{t("billing.choosePackage")}</h2>
           <p className="text-sm text-zinc-400">{t("billing.choosePackageHint")}</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {PACKAGES.map((pkg) => (
               <button
                 key={pkg.id}
@@ -232,6 +260,42 @@ export default function BillingPage() {
               </button>
             ))}
           </div>
+
+          <div className="pt-2 border-t border-zinc-800">
+            <label className="block text-sm text-zinc-400 mb-2">{t("billing.customLabel")}</label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={CUSTOM_MIN_VND}
+                  max={CUSTOM_MAX_VND}
+                  step={1000}
+                  value={customAmount}
+                  onChange={(e) => setCustomAmount(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") buyCustom();
+                  }}
+                  placeholder={t("billing.customPlaceholder")}
+                  disabled={loadingId !== null || checkoutUrl !== null}
+                  className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none disabled:opacity-50"
+                />
+              </div>
+              <button
+                onClick={buyCustom}
+                disabled={loadingId !== null || checkoutUrl !== null || customAmount.trim() === ""}
+                className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {loadingId === "custom" ? t("billing.creatingLink") : t("billing.customPay")}
+              </button>
+            </div>
+            {customPreview !== null && (
+              <p className="text-xs text-zinc-500 mt-2">
+                {t("billing.imagesUnit", { count: customPreview })}
+              </p>
+            )}
+          </div>
+
           {error && <p className="text-sm text-red-400">{error}</p>}
         </section>
 

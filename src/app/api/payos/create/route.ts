@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { findPackage, getPayos, getBaseUrl } from "@/lib/payos";
+import { findPackage, getPayos, getBaseUrl, normalizeCustomAmount } from "@/lib/payos";
 import { quotaFromBalance } from "@/lib/pricing";
 
 export async function POST(req: NextRequest) {
@@ -12,22 +12,32 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const pkg = findPackage(String(body.package_id || ""));
-    if (!pkg) {
-      return NextResponse.json({ error: "Gói nạp không hợp lệ" }, { status: 400 });
+    let amountVnd: number;
+    if (body.package_id !== undefined) {
+      const pkg = findPackage(String(body.package_id || ""));
+      if (!pkg) {
+        return NextResponse.json({ error: "Gói nạp không hợp lệ" }, { status: 400 });
+      }
+      amountVnd = pkg.amountVnd;
+    } else {
+      const custom = normalizeCustomAmount(body.amount);
+      if (custom === null) {
+        return NextResponse.json({ error: "Số tiền không hợp lệ" }, { status: 400 });
+      }
+      amountVnd = custom;
     }
 
     const order = await prisma.payosOrder.create({
-      data: { userId: user.id, amountVnd: pkg.amountVnd },
+      data: { userId: user.id, amountVnd },
     });
 
     const payos = getPayos();
-    const images = quotaFromBalance(pkg.amountVnd);
+    const images = quotaFromBalance(amountVnd);
     const baseUrl = getBaseUrl();
 
     const link = await payos.paymentRequests.create({
       orderCode: order.orderCode,
-      amount: pkg.amountVnd,
+      amount: amountVnd,
       description: `IMG ${images} anh`,
       returnUrl: `${baseUrl}/billing?payos=success`,
       cancelUrl: `${baseUrl}/billing?payos=cancel`,
