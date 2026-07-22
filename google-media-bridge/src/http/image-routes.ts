@@ -12,6 +12,7 @@ import {
   GENERATE_MAX_ACCOUNT_ATTEMPTS,
   TRANSIENT_UPSTREAM_COOLDOWN_MS,
   isBrowserTransientError,
+  isContentBlockedError,
   isRetryableAccountError,
   isTransientUpstreamError,
   publicFlowError,
@@ -138,6 +139,8 @@ export function registerImageRoutes(
     if (message.includes("FLOW_UNAUTHORIZED")) return 401;
     if (message.includes("FLOW_POOL_UNAVAILABLE")) return 503;
     if (message.includes("FLOW_INVALID_REQUEST")) return 400;
+    // Content safety: 422 — app không còn báo 502 "sập" oan.
+    if (isContentBlockedError(message)) return 422;
     if (
       message.includes("FLOW_RECAPTCHA_FAILED") ||
       message.includes("FLOW_RECAPTCHA_UNAVAILABLE")
@@ -159,6 +162,9 @@ export function registerImageRoutes(
   }
 
   function recordError(accountId: string, message: string): void {
+    // Content filter theo prompt/ảnh — không cooldown account (account vẫn tốt).
+    if (isContentBlockedError(message)) return;
+
     if (message.includes("FLOW_REAUTH_REQUIRED")) {
       deps.scheduler.applyHttpResult(accountId, 401, 0);
     } else if (message.includes("FLOW_QUOTA_EXCEEDED")) {
