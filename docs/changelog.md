@@ -1,5 +1,12 @@
 # Changelog — IMG Studio
 
+## 2026-07-22 — Flow edit: retry nhiều account khi Google nghẽn
+
+- Bridge image edit thử tối đa **3 account** (generate 2) khi lỗi tạm: upstream 5xx/HIGH_TRAFFIC/timeout, reCAPTCHA, reauth, browser `page.evaluate`.
+- Giữa các lần đổi account có delay ngắn (1.5s × attempt); account lỗi cooldown 60s, không mark reauth oan.
+- Log rõ `[flow-image] edit fail/recovered`, `[flow-upload]`, `[flow-generate] reject` kèm stage/status để debug 502.
+- Message public khi nghẽn: gợi ý thử lại sau ~30 giây.
+
 ## 2026-07-20 — Admin: điều hướng provider (rewrite) cấu hình được
 
 - Thêm panel Settings: bật/tắt rewrite tổng, rule nguồn→đích, áp generate/edit/both, gallery hiện model user chọn hoặc model thật.

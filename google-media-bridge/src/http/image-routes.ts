@@ -7,9 +7,15 @@ import type { BridgeConfig } from "../config.js";
 import { editFlowImages, generateFlowImages } from "../flow/image.js";
 import { readSession } from "../flow/session-broker.js";
 import {
+  ACCOUNT_RETRY_BASE_DELAY_MS,
+  EDIT_MAX_ACCOUNT_ATTEMPTS,
+  GENERATE_MAX_ACCOUNT_ATTEMPTS,
   TRANSIENT_UPSTREAM_COOLDOWN_MS,
+  isBrowserTransientError,
+  isRetryableAccountError,
   isTransientUpstreamError,
   publicFlowError,
+  sleep,
 } from "../flow/upstream-errors.js";
 import { requireApiKey } from "./auth.js";
 
@@ -148,13 +154,8 @@ export function registerImageRoutes(
     );
   }
 
-  /** reauth / reCAPTCHA / nghẽn tạm → được đổi account 1 lần. */
-  function isRetryableAccountError(message: string): boolean {
-    return (
-      message.includes("FLOW_REAUTH_REQUIRED") ||
-      isRecaptchaError(message) ||
-      isTransientUpstreamError(message)
-    );
+  function accountLabel(accountId: string): string {
+    return deps.accounts.get(accountId)?.alias || accountId.slice(0, 8);
   }
 
   function recordError(accountId: string, message: string): void {
@@ -168,85 +169,119 @@ export function registerImageRoutes(
     } else if (message.includes("FLOW_RECAPTCHA_FAILED")) {
       // Risk score / unusual activity tạm thời — 3 phút thay vì 15 phút quota.
       deps.scheduler.applyCooldown(accountId, 3 * 60_000, "recaptcha");
-    } else if (isTransientUpstreamError(message)) {
-      // Google nghẽn / timeout — không reauth; cooldown ngắn để ưu tiên account khác.
+    } else if (isTransientUpstreamError(message) || isBrowserTransientError(message)) {
+      // Google nghẽn / browser blip — không reauth; cooldown ngắn để ưu tiên account khác.
       deps.scheduler.applyCooldown(
         accountId,
         TRANSIENT_UPSTREAM_COOLDOWN_MS,
-        "upstream_transient",
+        isBrowserTransientError(message) ? "browser_transient" : "upstream_transient",
       );
     }
   }
 
+  function toSuccess(images: Array<{ b64_json?: string }>) {
+    return {
+      created: Math.floor(Date.now() / 1000),
+      data: images.map((img) => ({ b64_json: img.b64_json })),
+    };
+  }
+
+  /**
+   * Thuê account → chạy work → khi lỗi tạm (nghẽn/reCAPTCHA/reauth/browser)
+   * thì cooldown account hỏng và thử account healthy khác (tối đa maxAccountAttempts).
+   * Edit dùng 3 account vì upload+reference hay dính high-traffic.
+   */
   async function runWithLease(
     reply: { code: (status: number) => { send: (body: unknown) => unknown } },
-    work: (accountId: string, opts?: { proxy?: boolean }) => Promise<{ images: Array<{ b64_json?: string }> }>,
+    work: (
+      accountId: string,
+      opts?: { proxy?: boolean },
+    ) => Promise<{ images: Array<{ b64_json?: string }> }>,
+    opts?: { maxAccountAttempts?: number; kind?: "generate" | "edit" },
   ) {
+    const maxAttempts = opts?.maxAccountAttempts ?? GENERATE_MAX_ACCOUNT_ATTEMPTS;
+    const kind = opts?.kind ?? "generate";
     let leaseAccountId: string | null = null;
+    let lastMessage = "FLOW_UPSTREAM_REJECTED";
+
     try {
-      const lease = deps.scheduler.acquire("image");
-      leaseAccountId = lease.accountId;
-      const result = await work(leaseAccountId, { proxy: true });
-      deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
-      return {
-        created: Math.floor(Date.now() / 1000),
-        data: result.images.map((img) => ({ b64_json: img.b64_json })),
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "FLOW_UPSTREAM_REJECTED";
-
-      // Auto-fallback: proxy recaptcha fail → retry same account WITHOUT proxy (direct egress).
-      if (isRecaptchaError(message) && leaseAccountId) {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          const result = await work(leaseAccountId, { proxy: false });
-          deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
-          return {
-            created: Math.floor(Date.now() / 1000),
-            data: result.images.map((img) => ({ b64_json: img.b64_json })),
-          };
-        } catch (directError) {
-          const directMessage =
-            directError instanceof Error ? directError.message : "FLOW_UPSTREAM_REJECTED";
-          recordError(leaseAccountId, directMessage);
-          // fall through to reauth/transient fallback below
+          const lease = deps.scheduler.acquire("image");
+          leaseAccountId = lease.accountId;
+        } catch (acquireError) {
+          const acquireMessage =
+            acquireError instanceof Error ? acquireError.message : "FLOW_POOL_UNAVAILABLE";
+          lastMessage = acquireMessage;
+          console.warn(
+            `[flow-image] ${kind} acquire_failed attempt=${attempt}/${maxAttempts} err=${acquireMessage}`,
+          );
+          break;
         }
-      }
 
-      // reauth / reCAPTCHA / transient: thử 1 account healthy khác.
-      if (isRetryableAccountError(message) && leaseAccountId) {
-        recordError(leaseAccountId, message);
-        deps.scheduler.release(leaseAccountId);
-        leaseAccountId = null;
+        const alias = accountLabel(leaseAccountId);
+        let attemptMessage = lastMessage;
 
         try {
-          const retryLease = deps.scheduler.acquire("image");
-          leaseAccountId = retryLease.accountId;
-          // Transient: thử lại với proxy trước (nghẽn thường không liên quan proxy).
-          // reauth/reCAPTCHA path cũ: ưu tiên direct vì proxy vừa fail.
-          const preferDirect = !isTransientUpstreamError(message);
-          let result;
-          try {
-            result = await work(leaseAccountId, { proxy: !preferDirect });
-          } catch {
-            result = await work(leaseAccountId, { proxy: preferDirect });
+          const result = await work(leaseAccountId, { proxy: true });
+          deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
+          if (attempt > 1) {
+            console.info(
+              `[flow-image] ${kind} recovered attempt=${attempt}/${maxAttempts} account=${alias}`,
+            );
           }
-          deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
-          return {
-            created: Math.floor(Date.now() / 1000),
-            data: result.images.map((img) => ({ b64_json: img.b64_json })),
-          };
-        } catch (retryError) {
-          const retryMessage =
-            retryError instanceof Error ? retryError.message : "FLOW_UPSTREAM_REJECTED";
-          if (leaseAccountId) recordError(leaseAccountId, retryMessage);
-          const pub = publicFlowError(retryMessage);
-          return reply.code(errorStatus(retryMessage)).send({ error: pub });
+          return toSuccess(result.images);
+        } catch (error) {
+          attemptMessage =
+            error instanceof Error ? error.message : "FLOW_UPSTREAM_REJECTED";
+
+          // Proxy reCAPTCHA fail → cùng account, direct egress 1 lần.
+          if (isRecaptchaError(attemptMessage)) {
+            try {
+              const result = await work(leaseAccountId, { proxy: false });
+              deps.scheduler.applyHttpResult(leaseAccountId, 200, 0);
+              console.info(
+                `[flow-image] ${kind} recovered via direct proxy-fallback account=${alias}`,
+              );
+              return toSuccess(result.images);
+            } catch (directError) {
+              attemptMessage =
+                directError instanceof Error
+                  ? directError.message
+                  : "FLOW_UPSTREAM_REJECTED";
+            }
+          }
+
+          lastMessage = attemptMessage;
+          recordError(leaseAccountId, attemptMessage);
+          console.warn(
+            `[flow-image] ${kind} fail attempt=${attempt}/${maxAttempts} account=${alias} err=${attemptMessage.slice(0, 180)}`,
+          );
+
+          deps.scheduler.release(leaseAccountId);
+          leaseAccountId = null;
+
+          const canRetry =
+            attempt < maxAttempts && isRetryableAccountError(attemptMessage);
+          if (!canRetry) break;
+
+          // Nghẽn Google / browser: nghỉ ngắn trước khi đụng account khác.
+          if (
+            isTransientUpstreamError(attemptMessage) ||
+            isBrowserTransientError(attemptMessage) ||
+            isRecaptchaError(attemptMessage)
+          ) {
+            const delay = ACCOUNT_RETRY_BASE_DELAY_MS * attempt;
+            console.info(
+              `[flow-image] ${kind} retry_delay=${delay}ms next_attempt=${attempt + 1}/${maxAttempts}`,
+            );
+            await sleep(delay);
+          }
         }
       }
 
-      if (leaseAccountId) recordError(leaseAccountId, message);
-      const pub = publicFlowError(message);
-      return reply.code(errorStatus(message)).send({ error: pub });
+      const pub = publicFlowError(lastMessage);
+      return reply.code(errorStatus(lastMessage)).send({ error: pub });
     } finally {
       if (leaseAccountId) deps.scheduler.release(leaseAccountId);
     }
@@ -260,7 +295,10 @@ export function registerImageRoutes(
         .code(400)
         .send({ error: { message: "only b64_json is supported", code: "FLOW_INVALID_REQUEST" } });
     }
-    return runWithLease(reply, (accountId, o) => doGenerate(accountId, body, o));
+    return runWithLease(reply, (accountId, o) => doGenerate(accountId, body, o), {
+      maxAccountAttempts: GENERATE_MAX_ACCOUNT_ATTEMPTS,
+      kind: "generate",
+    });
   });
 
   app.post("/v1/images/edits", async (request, reply) => {
@@ -279,6 +317,9 @@ export function registerImageRoutes(
           .send({ error: { message: "empty image", code: "FLOW_INVALID_REQUEST" } });
       }
     }
-    return runWithLease(reply, (accountId, o) => doEdit(accountId, body, o));
+    return runWithLease(reply, (accountId, o) => doEdit(accountId, body, o), {
+      maxAccountAttempts: EDIT_MAX_ACCOUNT_ATTEMPTS,
+      kind: "edit",
+    });
   });
 }

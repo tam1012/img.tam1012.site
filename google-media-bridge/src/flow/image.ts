@@ -568,10 +568,17 @@ export async function uploadFlowImage(input: {
   }
   if (result.status === 429) throw new Error("FLOW_QUOTA_EXCEEDED");
   if (result.status !== 200) {
-    throw new Error(formatUpstreamRejected(result.status, result.raw));
+    const err = formatUpstreamRejected(result.status, result.raw, "upload");
+    console.warn(
+      `[flow-upload] status=${result.status} bytes=${input.image.data.length} raw=${snippetRaw(result.raw)}`,
+    );
+    throw new Error(err);
   }
   const name = extractUploadedImageName(result.raw);
-  if (!name) throw new Error("FLOW_UPSTREAM_REJECTED");
+  if (!name) {
+    console.warn(`[flow-upload] 200 but no media name raw=${snippetRaw(result.raw)}`);
+    throw new Error(formatUpstreamRejected(200, result.raw, "upload"));
+  }
   return name;
 }
 
@@ -768,9 +775,17 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
 
       if (images.length === 0 && countMedia(result.raw) > 0) {
         // Upstream succeeded but URL extract failed — still report opaque success count via empty b64 is wrong.
-        throw new Error("FLOW_UPSTREAM_REJECTED");
+        console.warn(
+          `[flow-generate] 200 media present but no downloadable bytes raw=${snippetRaw(result.raw)}`,
+        );
+        throw new Error(formatUpstreamRejected(200, result.raw, "generate-empty-bytes"));
       }
-      if (images.length === 0) throw new Error("FLOW_UPSTREAM_REJECTED");
+      if (images.length === 0) {
+        console.warn(
+          `[flow-generate] 200 but no images mediaItems=${mediaItems.length} urls=${urls.length} raw=${snippetRaw(result.raw)}`,
+        );
+        throw new Error(formatUpstreamRejected(200, result.raw, "generate-empty"));
+      }
       return { status: 200, images };
     }
     // Non-200: only retry once when it looks like recaptcha rejection.
@@ -778,12 +793,15 @@ export async function generateFlowImages(input: GenerateImageInput): Promise<{
       recaptchaFailures += 1;
       continue;
     }
+    console.warn(
+      `[flow-generate] reject status=${result.status} raw=${snippetRaw(result.raw)}`,
+    );
     break;
   }
 
   throw new Error(
     lastStatus || lastRaw
-      ? formatUpstreamRejected(lastStatus, lastRaw)
+      ? formatUpstreamRejected(lastStatus, lastRaw, "generate")
       : "FLOW_UPSTREAM_REJECTED",
   );
 }
