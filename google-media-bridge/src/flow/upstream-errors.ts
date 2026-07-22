@@ -25,7 +25,7 @@ export function extractUpstreamReason(raw: string): string {
         status?: string;
         details?: Array<{ reason?: string; metadata?: Record<string, string> }>;
       };
-      details?: Array<{ reason?: string }>;
+      details?: Array<{ reason?: string; metadata?: Record<string, string> }>;
     };
     const details = parsed.error?.details ?? parsed.details ?? [];
     for (const d of details) {
