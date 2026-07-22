@@ -14,9 +14,21 @@ export function getFlowImagePriceVnd() {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : getImagePriceVnd();
 }
 
+// Gemini 3 Pro Image qua Vertex có giá đầu nguồn cao → đặt giá riêng.
+// Khi GEMINI3_PRO_IMAGE_PRICE_VND không set → dùng giá ảnh chung.
+const GEMINI3_PRO_IMAGE_MODELS = new Set(["gemini-3-pro-image"]);
+
+export function getGemini3ProImagePriceVnd() {
+  const raw = process.env.GEMINI3_PRO_IMAGE_PRICE_VND;
+  if (raw === undefined || raw === "") return getImagePriceVnd();
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : getImagePriceVnd();
+}
+
 /** Giá 1 ảnh theo model user chọn (model hiển thị, không phải model thật sau rewrite). */
 export function getImagePriceForModel(model: string | null | undefined) {
   if (model && FLOW_IMAGE_MODELS.has(model)) return getFlowImagePriceVnd();
+  if (model && GEMINI3_PRO_IMAGE_MODELS.has(model)) return getGemini3ProImagePriceVnd();
   return getImagePriceVnd();
 }
 
