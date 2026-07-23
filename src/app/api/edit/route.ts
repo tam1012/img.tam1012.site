@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { normalizeIdempotencyKey } from "@/lib/image-options";
-import { isGenerateRateLimited } from "@/lib/rate-limit";
+import {
+  UserGenerationLimitError,
+  withUserGenerationLimit,
+} from "@/lib/rate-limit";
 import { editSingleImage, MAX_EDIT_UPLOAD_LABEL } from "@/lib/edit-image";
 
 function uploadTooLargeResponse() {
@@ -15,10 +18,6 @@ export async function POST(req: NextRequest) {
   const user = await requireUser();
   if (!user) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
-  }
-
-  if (isGenerateRateLimited(user.id)) {
-    return NextResponse.json({ error: "Bạn thao tác quá nhanh, vui lòng thử lại sau" }, { status: 429 });
   }
 
   let formData: FormData;
@@ -50,29 +49,38 @@ export async function POST(req: NextRequest) {
     }))
   );
 
-  const result = await editSingleImage(user, {
-    prompt: typeof prompt === "string" ? prompt : "",
-    providerId: typeof providerId === "string" ? providerId : "",
-    images,
-    aspectRatio,
-    resolution,
-    quality,
-    clientKey: clientKey || "",
-  });
+  try {
+    return await withUserGenerationLimit(user.id, 1, async () => {
+      const result = await editSingleImage(user, {
+        prompt: typeof prompt === "string" ? prompt : "",
+        providerId: typeof providerId === "string" ? providerId : "",
+        images,
+        aspectRatio,
+        resolution,
+        quality,
+        clientKey: clientKey || "",
+      });
 
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: result.status });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+
+      const record = result.image;
+      return NextResponse.json({
+        id: record.id,
+        url: `/api/images/${record.id}`,
+        prompt: record.prompt,
+        provider_name: record.provider_name,
+        model: record.model,
+        created_at: record.created_at,
+        status: record.status,
+        charged_vnd: result.chargedVnd,
+      });
+    });
+  } catch (e: unknown) {
+    if (e instanceof UserGenerationLimitError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
+    throw e;
   }
-
-  const record = result.image;
-  return NextResponse.json({
-    id: record.id,
-    url: `/api/images/${record.id}`,
-    prompt: record.prompt,
-    provider_name: record.provider_name,
-    model: record.model,
-    created_at: record.created_at,
-    status: record.status,
-    charged_vnd: result.chargedVnd,
-  });
 }

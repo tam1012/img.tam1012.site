@@ -1,5 +1,13 @@
 # Changelog — IMG Studio
 
+## 2026-07-23 — User generation limit: 3 đơn vị/phút + 1 job/user (chờ im)
+
+- Thay rate-limit cũ (20 request/phút, không khóa song song) bằng `UserGenerationLimiter` trong `src/lib/rate-limit.ts`.
+- Áp create ảnh, edit, video, public API v1: tối đa **3 đơn vị / 60s / user** (batch `count=n` tốn n; không cấm batch).
+- Cùng lúc chỉ **1 job / user**; job sau xếp hàng im (client chỉ loading), chờ tối đa **120s** rồi 429 message chung `"Hệ thống đang bận, vui lòng thử lại sau"`.
+- Mục tiêu: giảm spam multi-tab đốt quota provider (case edit Gemini 3.1 Flash Image), không chặn user đã trả tiền.
+- Tests: `tests/user-generation-limit.test.ts`.
+
 ## 2026-07-22 — Flow edit: retry nhiều account khi Google nghẽn
 
 - Bridge image edit thử tối đa **3 account** (generate 2) khi lỗi tạm: upstream 5xx/HIGH_TRAFFIC/timeout, reCAPTCHA, reauth, browser `page.evaluate`.

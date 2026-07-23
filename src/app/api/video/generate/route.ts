@@ -21,7 +21,10 @@ import {
 } from "@/lib/video";
 import { getVideoPriceVnd } from "@/lib/pricing";
 import { debitForVideo, refundForVideo, INSUFFICIENT_BALANCE } from "@/lib/wallet";
-import { isGenerateRateLimited } from "@/lib/rate-limit";
+import {
+  UserGenerationLimitError,
+  withUserGenerationLimit,
+} from "@/lib/rate-limit";
 
 export const maxDuration = 600;
 
@@ -51,10 +54,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
   }
 
-  if (isGenerateRateLimited(user.id)) {
-    return NextResponse.json({ error: "Bạn thao tác quá nhanh, vui lòng thử lại sau" }, { status: 429 });
-  }
-
   let videoId: string | null = null;
   let charged = false;
   const videoPrice = getVideoPriceVnd();
@@ -64,6 +63,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Validate input ngoài hàng đợi để request lỗi không chiếm slot 3/phút.
     const formData = await req.formData();
     const prompt = ((formData.get("prompt") as string) || "").trim();
     const model = (formData.get("model") as string) || DEFAULT_VIDEO_MODEL;
@@ -137,32 +137,37 @@ export async function POST(req: NextRequest) {
     const mode: "text" | "image" = image ? "image" : "text";
     const costVnd = user.role === "admin" ? 0 : videoPrice;
 
-    const video = await createVideoRecord({
-      userId: user.id,
-      prompt,
-      model,
-      aspectRatio,
-      resolution,
-      durationSeconds: duration,
-      mode,
-      account: xai ? "xai" : flow ? "flow-bridge" : account,
-      costVnd,
-    });
-    videoId = video.id;
+    return await withUserGenerationLimit(user.id, 1, async () => {
+      const video = await createVideoRecord({
+        userId: user.id,
+        prompt,
+        model,
+        aspectRatio,
+        resolution,
+        durationSeconds: duration,
+        mode,
+        account: xai ? "xai" : flow ? "flow-bridge" : account,
+        costVnd,
+      });
+      videoId = video.id;
 
-    if (user.role !== "admin") {
-      await debitForVideo(user.id, video.id, videoPrice);
-      charged = true;
-    }
+      if (user.role !== "admin") {
+        await debitForVideo(user.id, video.id, videoPrice);
+        charged = true;
+      }
 
-    const result = await generateVideo({ prompt, model, aspectRatio, resolution, duration, account, image, videoId: video.id });
-    await completeVideoRecord(video.id, `${video.id}.mp4`, result.account);
+      const result = await generateVideo({ prompt, model, aspectRatio, resolution, duration, account, image, videoId: video.id });
+      await completeVideoRecord(video.id, `${video.id}.mp4`, result.account);
 
-    return NextResponse.json({
-      ...result,
-      charged_vnd: charged ? videoPrice : 0,
+      return NextResponse.json({
+        ...result,
+        charged_vnd: charged ? videoPrice : 0,
+      });
     });
   } catch (e: unknown) {
+    if (e instanceof UserGenerationLimitError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     const message = e instanceof Error ? e.message : "Lỗi tạo video";
     if (videoId) await failVideoRecord(videoId, message).catch(() => undefined);
     if (charged && videoId) await refundForVideo(user.id, videoId, videoPrice, message).catch(() => undefined);

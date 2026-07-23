@@ -16,7 +16,10 @@ import { generateImage, computePixelSize } from "@/lib/providers";
 import { getImagePriceForModel } from "@/lib/pricing";
 import { debitForBatch, refundForBatch, INSUFFICIENT_BALANCE } from "@/lib/wallet";
 import { saveImageFile } from "@/lib/storage";
-import { isGenerateRateLimited } from "@/lib/rate-limit";
+import {
+  UserGenerationLimitError,
+  withUserGenerationLimit,
+} from "@/lib/rate-limit";
 import { generateSingleImage } from "@/lib/generate-image";
 import {
   clampResolutionForProvider,
@@ -27,10 +30,6 @@ export async function POST(req: NextRequest) {
   const user = await requireUser();
   if (!user) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 });
-  }
-
-  if (isGenerateRateLimited(user.id)) {
-    return NextResponse.json({ error: "Bạn thao tác quá nhanh, vui lòng thử lại sau" }, { status: 429 });
   }
 
   try {
@@ -68,47 +67,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Số dư không đủ, vui lòng liên hệ admin để nạp tiền" }, { status: 402 });
     }
 
-    if (count === 1) {
-      const result = await generateSingleImage(user, {
+    // 3 đơn vị/phút + 1 job/user (chờ im). Batch count=n tốn n đơn vị, không cấm batch.
+    return await withUserGenerationLimit(user.id, count, async () => {
+      if (count === 1) {
+        const result = await generateSingleImage(user, {
+          prompt: prompt.trim(),
+          providerId: provider_id,
+          aspectRatio: aspect_ratio,
+          resolution,
+          quality,
+          clientKey,
+        });
+        if (!result.ok) {
+          if (result.code === "processing") {
+            return processingResponse();
+          }
+          if (result.code === "failed") {
+            return failedResponse(result.error);
+          }
+          return NextResponse.json({ error: result.error }, { status: result.status });
+        }
+        return NextResponse.json({
+          images: [imagePayload(result.image)],
+          charged_vnd: result.chargedVnd,
+          count: 1,
+        });
+      }
+
+      // Batch: resolve rewrite 1 lần, dùng chung cho mọi ảnh trong batch.
+      const route = await resolveProviderRoute(provider, "generate");
+      const actualProvider = route.actual;
+      const effectiveResolution = clampResolutionForProvider(actualProvider, resolution);
+      // Giá theo model user chọn (display), không theo model thật sau rewrite.
+      const batchPrice = getImagePriceForModel(route.display.model);
+      return handleBatch(user, route, {
         prompt: prompt.trim(),
-        providerId: provider_id,
-        aspectRatio: aspect_ratio,
-        resolution,
+        aspect_ratio,
+        resolution: effectiveResolution,
         quality,
         clientKey,
+        price: batchPrice,
+        count,
       });
-      if (!result.ok) {
-        if (result.code === "processing") {
-          return processingResponse();
-        }
-        if (result.code === "failed") {
-          return failedResponse(result.error);
-        }
-        return NextResponse.json({ error: result.error }, { status: result.status });
-      }
-      return NextResponse.json({
-        images: [imagePayload(result.image)],
-        charged_vnd: result.chargedVnd,
-        count: 1,
-      });
-    }
-
-    // Batch: resolve rewrite 1 lần, dùng chung cho mọi ảnh trong batch.
-    const route = await resolveProviderRoute(provider, "generate");
-    const actualProvider = route.actual;
-    const effectiveResolution = clampResolutionForProvider(actualProvider, resolution);
-    // Giá theo model user chọn (display), không theo model thật sau rewrite.
-    const batchPrice = getImagePriceForModel(route.display.model);
-    return handleBatch(user, route, {
-      prompt: prompt.trim(),
-      aspect_ratio,
-      resolution: effectiveResolution,
-      quality,
-      clientKey,
-      price: batchPrice,
-      count,
     });
   } catch (e: unknown) {
+    if (e instanceof UserGenerationLimitError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     const message = e instanceof Error ? e.message : "Lỗi tạo ảnh";
     if (message === INSUFFICIENT_BALANCE) {
       return NextResponse.json({ error: "Số dư không đủ, vui lòng liên hệ admin để nạp tiền" }, { status: 402 });

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUserFromRequest } from "@/lib/auth";
 import { getWalletSummary } from "@/lib/wallet";
-import { isGenerateRateLimited } from "@/lib/rate-limit";
+import {
+  UserGenerationLimitError,
+  withUserGenerationLimit,
+} from "@/lib/rate-limit";
 import { normalizeIdempotencyKey } from "@/lib/image-options";
 import { editSingleImage, MAX_EDIT_UPLOAD_LABEL } from "@/lib/edit-image";
 
@@ -18,10 +21,6 @@ export async function POST(req: NextRequest) {
   const user = await requireUserFromRequest(req);
   if (!user) {
     return NextResponse.json({ error: "API key không hợp lệ hoặc đã thu hồi" }, { status: 401 });
-  }
-
-  if (isGenerateRateLimited(user.id)) {
-    return NextResponse.json({ error: "Bạn thao tác quá nhanh, vui lòng thử lại sau" }, { status: 429 });
   }
 
   let formData: FormData;
@@ -57,42 +56,51 @@ export async function POST(req: NextRequest) {
     }))
   );
 
-  const result = await editSingleImage(user, {
-    prompt: typeof prompt === "string" ? prompt : "",
-    providerId: typeof providerId === "string" ? providerId : "",
-    images,
-    aspectRatio,
-    resolution,
-    quality,
-    clientKey,
-  });
+  try {
+    return await withUserGenerationLimit(user.id, 1, async () => {
+      const result = await editSingleImage(user, {
+        prompt: typeof prompt === "string" ? prompt : "",
+        providerId: typeof providerId === "string" ? providerId : "",
+        images,
+        aspectRatio,
+        resolution,
+        quality,
+        clientKey,
+      });
 
-  if (!result.ok) {
-    if (result.code === "processing") {
-      return NextResponse.json(
-        { error: result.error, status: "processing", retry_after_ms: 1500 },
-        { status: 202 },
-      );
+      if (!result.ok) {
+        if (result.code === "processing") {
+          return NextResponse.json(
+            { error: result.error, status: "processing", retry_after_ms: 1500 },
+            { status: 202 },
+          );
+        }
+        return NextResponse.json({ error: result.error, status: result.code || "error" }, { status: result.status });
+      }
+
+      const wallet = await getWalletSummary(user.id);
+      const img = result.image;
+
+      return NextResponse.json({
+        id: img.id,
+        status: "completed",
+        prompt: img.prompt,
+        provider_name: img.provider_name,
+        model: img.model,
+        aspect_ratio: img.aspect_ratio,
+        resolution: img.resolution,
+        quality: img.quality,
+        cost_vnd: result.chargedVnd,
+        balance_vnd: wallet.balance_vnd,
+        url: `/api/v1/images/${img.id}/file`,
+        created_at: img.created_at,
+        reused: result.reused,
+      });
+    });
+  } catch (e: unknown) {
+    if (e instanceof UserGenerationLimitError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
     }
-    return NextResponse.json({ error: result.error, status: result.code || "error" }, { status: result.status });
+    throw e;
   }
-
-  const wallet = await getWalletSummary(user.id);
-  const img = result.image;
-
-  return NextResponse.json({
-    id: img.id,
-    status: "completed",
-    prompt: img.prompt,
-    provider_name: img.provider_name,
-    model: img.model,
-    aspect_ratio: img.aspect_ratio,
-    resolution: img.resolution,
-    quality: img.quality,
-    cost_vnd: result.chargedVnd,
-    balance_vnd: wallet.balance_vnd,
-    url: `/api/v1/images/${img.id}/file`,
-    created_at: img.created_at,
-    reused: result.reused,
-  });
 }

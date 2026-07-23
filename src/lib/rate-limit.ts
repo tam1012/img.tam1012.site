@@ -124,24 +124,220 @@ const DISPOSABLE_DOMAINS = new Set([
   "fleckens.hu",
 ]);
 
-const GENERATE_WINDOW_MS = 60 * 1000;
-const MAX_GENERATE_PER_WINDOW = 20;
-const generateStore = new Map<string, Entry>();
-
 /**
- * Rate-limit tạo/sửa ảnh & video theo user: tối đa 20 request / phút.
- * Chặn spam script gọi thẳng API (case doandk23 spam ~50 req/s khi balance=0).
- * Trả về true nếu đã vượt ngưỡng và cần chặn (429).
+ * Giới hạn tạo/sửa ảnh + video theo user (chống spam song song / đốt quota provider).
+ *
+ * - Tối đa 3 đơn vị / 60s / user (ảnh generate, edit, video = 1; batch count=n = n).
+ * - Cùng lúc chỉ 1 job / user; job sau xếp hàng im (client chỉ thấy loading).
+ * - Batch không cấm: count > 3 thì chờ cửa sổ trống rồi chạy full batch.
+ * - Chờ tối đa 120s rồi mới 429 với message chung, không lộ "đang có job khác".
  */
-export function isGenerateRateLimited(userId: string): boolean {
-  const now = Date.now();
-  const entry = generateStore.get(userId);
-  if (!entry || now > entry.resetAt) {
-    generateStore.set(userId, { count: 1, resetAt: now + GENERATE_WINDOW_MS });
-    return false;
+const USER_GEN_WINDOW_MS = 60_000;
+const USER_GEN_MAX_UNITS = 3;
+const USER_GEN_MAX_WAIT_MS = 120_000;
+
+export const USER_GENERATION_BUSY_MESSAGE =
+  "Hệ thống đang bận, vui lòng thử lại sau";
+
+export class UserGenerationLimitError extends Error {
+  readonly status = 429;
+
+  constructor(message = USER_GENERATION_BUSY_MESSAGE) {
+    super(message);
+    this.name = "UserGenerationLimitError";
   }
-  entry.count += 1;
-  return entry.count > MAX_GENERATE_PER_WINDOW;
+}
+
+type UserGenWaiter = {
+  units: number;
+  resolve: (release: () => void) => void;
+  reject: (err: Error) => void;
+  deadline: number;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
+type UserGenState = {
+  running: boolean;
+  /** Mỗi phần tử = 1 đơn vị đã dùng tại mốc thời gian đó. */
+  stamps: number[];
+  waiters: UserGenWaiter[];
+  pumpTimer: ReturnType<typeof setTimeout> | null;
+};
+
+export class UserGenerationLimiter {
+  private states = new Map<string, UserGenState>();
+
+  constructor(
+    private readonly maxUnits = USER_GEN_MAX_UNITS,
+    private readonly windowMs = USER_GEN_WINDOW_MS,
+    private readonly maxWaitMs = USER_GEN_MAX_WAIT_MS,
+    private readonly now = () => Date.now(),
+  ) {}
+
+  /** Dành cho test: xóa toàn bộ trạng thái. */
+  reset(): void {
+    for (const state of this.states.values()) {
+      if (state.pumpTimer) clearTimeout(state.pumpTimer);
+      for (const w of state.waiters) {
+        if (w.timer) clearTimeout(w.timer);
+      }
+    }
+    this.states.clear();
+  }
+
+  /**
+   * Chờ im tới khi user rảnh (không job khác) và còn đủ slot,
+   * rồi chiếm hàng đợi + reserve `units`. Trả về hàm release() phải gọi khi xong.
+   */
+  acquire(userId: string, units = 1): Promise<() => void> {
+    const need = Math.max(1, Math.floor(Number(units) || 1));
+    const state = this.getState(userId);
+    const deadline = this.now() + this.maxWaitMs;
+
+    return new Promise<() => void>((resolve, reject) => {
+      const waiter: UserGenWaiter = {
+        units: need,
+        resolve,
+        reject,
+        deadline,
+        timer: null,
+      };
+      waiter.timer = setTimeout(() => {
+        this.failWaiter(userId, waiter, new UserGenerationLimitError());
+      }, Math.max(0, deadline - this.now()));
+      state.waiters.push(waiter);
+      this.pump(userId);
+    });
+  }
+
+  private getState(userId: string): UserGenState {
+    let state = this.states.get(userId);
+    if (!state) {
+      state = { running: false, stamps: [], waiters: [], pumpTimer: null };
+      this.states.set(userId, state);
+    }
+    return state;
+  }
+
+  private prune(state: UserGenState, now: number): void {
+    const cutoff = now - this.windowMs;
+    while (state.stamps.length > 0 && state.stamps[0] <= cutoff) {
+      state.stamps.shift();
+    }
+  }
+
+  /** Batch lớn hơn max: chỉ start khi cửa sổ đang trống. */
+  private canFit(state: UserGenState, units: number, now: number): boolean {
+    this.prune(state, now);
+    if (units <= this.maxUnits) {
+      return state.stamps.length + units <= this.maxUnits;
+    }
+    return state.stamps.length === 0;
+  }
+
+  private msUntilFit(state: UserGenState, units: number, now: number): number {
+    this.prune(state, now);
+    if (this.canFit(state, units, now)) return 0;
+    if (state.stamps.length === 0) return this.windowMs;
+
+    if (units <= this.maxUnits) {
+      // Cần bỏ bớt stamp cũ cho đủ chỗ.
+      const overflow = state.stamps.length + units - this.maxUnits;
+      const idx = Math.min(overflow - 1, state.stamps.length - 1);
+      return Math.max(1, state.stamps[idx] + this.windowMs - now);
+    }
+    // Batch > max: chờ stamp cũ nhất hết hạn hết cửa sổ.
+    const last = state.stamps[state.stamps.length - 1];
+    return Math.max(1, last + this.windowMs - now);
+  }
+
+  private failWaiter(userId: string, waiter: UserGenWaiter, err: Error): void {
+    const state = this.states.get(userId);
+    if (!state) return;
+    const idx = state.waiters.indexOf(waiter);
+    if (idx === -1) return;
+    state.waiters.splice(idx, 1);
+    if (waiter.timer) {
+      clearTimeout(waiter.timer);
+      waiter.timer = null;
+    }
+    waiter.reject(err);
+  }
+
+  private schedulePump(userId: string, delayMs: number): void {
+    const state = this.getState(userId);
+    if (state.pumpTimer) clearTimeout(state.pumpTimer);
+    state.pumpTimer = setTimeout(() => {
+      state.pumpTimer = null;
+      this.pump(userId);
+    }, Math.max(1, delayMs));
+  }
+
+  private pump(userId: string): void {
+    const state = this.getState(userId);
+    if (state.running) return;
+
+    const now = this.now();
+    while (state.waiters.length > 0 && state.waiters[0].deadline <= now) {
+      const expired = state.waiters.shift()!;
+      if (expired.timer) {
+        clearTimeout(expired.timer);
+        expired.timer = null;
+      }
+      expired.reject(new UserGenerationLimitError());
+    }
+    if (state.waiters.length === 0) return;
+
+    const waiter = state.waiters[0];
+    const waitMs = this.msUntilFit(state, waiter.units, now);
+    if (waitMs > 0) {
+      const remaining = waiter.deadline - now;
+      if (remaining <= 0) {
+        this.failWaiter(userId, waiter, new UserGenerationLimitError());
+        this.pump(userId);
+        return;
+      }
+      this.schedulePump(userId, Math.min(waitMs, remaining));
+      return;
+    }
+
+    // Đủ điều kiện: chiếm slot + đánh dấu running.
+    state.waiters.shift();
+    if (waiter.timer) {
+      clearTimeout(waiter.timer);
+      waiter.timer = null;
+    }
+    const acquiredAt = this.now();
+    for (let i = 0; i < waiter.units; i++) {
+      state.stamps.push(acquiredAt);
+    }
+    state.running = true;
+
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      state.running = false;
+      this.pump(userId);
+    };
+    waiter.resolve(release);
+  }
+}
+
+export const userGenerationLimiter = new UserGenerationLimiter();
+
+/** Bọc create/edit/video: chờ im theo hàng đợi user rồi chạy fn. */
+export async function withUserGenerationLimit<T>(
+  userId: string,
+  units: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const release = await userGenerationLimiter.acquire(userId, units);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
 }
 
 export function isDisposableEmail(email: string): boolean {
