@@ -93,8 +93,11 @@ export default function GeneratePage() {
     const res = await fetch("/api/providers");
     const data = await res.json();
     if (res.ok && data.providers.length > 0) {
-      setProviders(data.providers);
-      const def = data.providers.find((p: Provider) => p.is_default) || data.providers[0];
+      const sorted = [...data.providers].sort((a: Provider, b: Provider) =>
+        a.name.localeCompare(b.name, "vi", { numeric: true })
+      );
+      setProviders(sorted);
+      const def = sorted.find((p: Provider) => p.is_default) || sorted[0];
       setProviderId(def.id);
     }
   }, []);
