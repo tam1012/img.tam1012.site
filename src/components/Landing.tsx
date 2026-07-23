@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import MemorialBanner from "@/components/MemorialBanner";
 import LanguageSwitcher from "@/i18n/LanguageSwitcher";
 import { ADMIN_CONTACT } from "@/lib/site-settings";
 import { formatVnd, useLocale, useT } from "@/i18n";
@@ -39,6 +40,8 @@ export default function Landing({ imagePriceVnd, signupImages }: LandingProps) {
           </div>
         </div>
       </header>
+
+      <MemorialBanner variant="large" />
 
       <main className="flex-1">
         <section className="mx-auto max-w-3xl px-4 py-20 text-center sm:py-28">

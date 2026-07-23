@@ -1,6 +1,7 @@
 "use client";
 
 import Header from "@/components/Header";
+import MemorialBanner from "@/components/MemorialBanner";
 import MobileNav from "@/components/MobileNav";
 import SiteFooter from "@/components/SiteFooter";
 import SiteNoticeBanner from "@/components/SiteNoticeBanner";
@@ -9,6 +10,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
+      <MemorialBanner variant="strip" />
       <SiteNoticeBanner />
       <div className="flex flex-1 flex-col pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
         <div className="flex-1">{children}</div>
