@@ -368,7 +368,7 @@ export default function GeneratePage() {
                   label={t("common.quantity")}
                   value={String(count)}
                   onChange={(v) => setCount(Number(v))}
-                  options={Array.from({ length: 10 }, (_, i) => {
+                  options={Array.from({ length: 4 }, (_, i) => {
                     const n = i + 1;
                     return { value: String(n), label: t("common.nImages", { count: n }) };
                   })}

@@ -326,6 +326,14 @@ export async function upsampleFlowImage(input: {
   if (!targetResolution) throw new Error("FLOW_INVALID_REQUEST");
   const action = input.action ?? "IMAGE_GENERATION";
 
+  // Upsample là lần gọi grecaptcha.execute() THỨ HAI trên cùng page (generate là
+  // lần đầu). Trên page đã mở lâu, execute lần 2 hay trả token rỗng → RECAPTCHA_FAILED.
+  // Generate không dính vì readSession luôn goto(FLOW_URL) làm tươi grecaptcha ngay
+  // trước nó. Reload page ở đây để lần execute cho upsample cũng "tươi" như generate.
+  await input.page
+    .reload({ waitUntil: "domcontentloaded", timeout: 25_000 })
+    .catch(() => undefined);
+
   let lastError = "FLOW_UPSTREAM_REJECTED";
 
   for (const mediaId of idCandidates) {

@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { prompt, provider_id, aspect_ratio = "1:1", resolution = "1K", quality = "standard" } = body;
-    const count = Math.min(Math.max(1, Math.floor(Number(body.count) || 1)), 10);
+    const count = Math.min(Math.max(1, Math.floor(Number(body.count) || 1)), 4);
     const clientKey = normalizeIdempotencyKey(
       req.headers.get("Idempotency-Key") || body.idempotency_key || body.idempotencyKey,
     );
