@@ -7,6 +7,19 @@ import { XAI_BASE_URL, runWithXaiAccount, xaiAuthPool } from "../xai-auth-pool";
 import { editFlowImageViaRoute, generateFlowImageViaRoute } from "../flow-client";
 import { withVertexImageThrottle } from "../vertex-image-throttle";
 
+// Trần thời gian chờ 1 lần gọi provider ảnh qua proxy (CPA). Mặc định thư viện
+// OpenAI là 600s + tự retry 2 lần (~30 phút), làm job treo khóa cứng slot 1-job/user.
+// Cắt còn 240s, không tự retry: job treo fail sớm để user tạo ảnh mới ngay.
+const IMAGE_HTTP_TIMEOUT_MS = envInt("IMAGE_HTTP_TIMEOUT_MS", 240_000);
+const IMAGE_HTTP_MAX_RETRIES = envInt("IMAGE_HTTP_MAX_RETRIES", 0);
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
 export interface GenerateParams {
   prompt: string;
   width: number;
@@ -331,6 +344,8 @@ async function openaiGenerate(config: ProviderConfig, params: GenerateParams): P
   const client = new OpenAI({
     apiKey: config.api_key,
     baseURL: config.base_url || undefined,
+    timeout: IMAGE_HTTP_TIMEOUT_MS,
+    maxRetries: IMAGE_HTTP_MAX_RETRIES,
   });
   const count = params.count || 1;
 
@@ -436,6 +451,8 @@ async function openaiEdit(config: ProviderConfig, params: EditParams): Promise<G
   const client = new OpenAI({
     apiKey: config.api_key,
     baseURL: config.base_url || undefined,
+    timeout: IMAGE_HTTP_TIMEOUT_MS,
+    maxRetries: IMAGE_HTTP_MAX_RETRIES,
   });
 
   if (isImagenModel(config.model)) {
